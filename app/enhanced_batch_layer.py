@@ -334,3 +334,115 @@ def create_decade_lookup():
         decade_data,
         ["decade", "era_name", "era_characteristic"]
     )
+
+
+# DATA LOADING WITH PARTITION PRUNING
+def load_and_process_data():
+    """Load CSV và xử lý dữ liệu với advanced transformations"""
+    print("\n" + "=" * 80)
+    print("📂 STAGE 1: DATA LOADING")
+    print("=" * 80)
+    
+    # Determine data source path
+    if MINIO_ENABLED:
+        data_path = f"s3a://{MINIO_BUCKET}/{MINIO_CSV_FILE}"
+        print(f"   📡 Reading from MinIO: {data_path}")
+    else:
+        data_path = CSV_PATH
+        print(f"   📁 Reading from local: {data_path}")
+    
+    # Read CSV with schema enforcement
+    raw_df = spark.read \
+        .option("header", "true") \
+        .option("multiLine", "true") \
+        .option("escape", '"') \
+        .option("quote", '"') \
+        .schema(TMDB_SCHEMA) \
+        .csv(data_path)
+    
+    total_records = raw_df.count()
+    print(f"   ✅ Loaded {total_records} raw records")
+    
+    # CACHING STRATEGY: Cache raw data for multiple transformations
+    print("\n💾 CACHING: Persisting raw data (MEMORY_AND_DISK)...")
+    raw_df.persist(StorageLevel.MEMORY_AND_DISK)
+    raw_df.count()  # Trigger caching
+    print("   ✅ Raw data cached")
+    
+    # STAGE 2: MULTI-STAGE TRANSFORMATIONS
+    print("\n" + "=" * 80)
+    print("🔄 STAGE 2: MULTI-STAGE TRANSFORMATIONS")
+    print("=" * 80)
+    
+    # Stage 2.1: Basic Type Conversions and Date Extraction
+    print("   📌 Stage 2.1: Basic transformations...")
+    stage1_df = raw_df \
+        .withColumn("release_year", year(to_date(col("release_date"), "yyyy-MM-dd"))) \
+        .withColumn("release_quarter", quarter(to_date(col("release_date"), "yyyy-MM-dd"))) \
+        .withColumn("release_month", month(to_date(col("release_date"), "yyyy-MM-dd"))) \
+        .withColumn("release_day_of_week", dayofweek(to_date(col("release_date"), "yyyy-MM-dd"))) \
+        .withColumn("release_week_of_year", weekofyear(to_date(col("release_date"), "yyyy-MM-dd")))
+    
+    # Stage 2.2: Financial Calculations
+    print("   📌 Stage 2.2: Financial calculations...")
+    stage2_df = stage1_df \
+        .withColumn("profit", col("revenue") - col("budget")) \
+        .withColumn("profit_margin", 
+            when((col("revenue") > 0) & (col("budget") > 0),
+                 spark_round((col("revenue") - col("budget")) / col("revenue") * 100, 2))
+            .otherwise(None)) \
+        .withColumn("cost_to_revenue_ratio",
+            when((col("revenue") > 0) & (col("budget") > 0),
+                 spark_round(col("budget") / col("revenue"), 4))
+            .otherwise(None)) \
+        .withColumn("is_profitable", col("revenue") > col("budget")) \
+        .withColumn("roi_percent", calculate_roi(col("revenue"), col("budget")))
+    
+    # Stage 2.3: Apply Custom UDFs
+    print("   📌 Stage 2.3: Applying Custom UDFs...")
+    stage3_df = stage2_df \
+        .withColumn("rating_category", categorize_rating(col("vote_average"))) \
+        .withColumn("budget_category", categorize_budget(col("budget"))) \
+        .withColumn("decade", extract_decade(col("release_year"))) \
+        .withColumn("profitability_tier", calculate_profitability_tier(col("roi_percent"))) \
+        .withColumn("runtime_category", categorize_runtime(col("runtime"))) \
+        .withColumn("popularity_category", categorize_popularity(col("popularity"))) \
+        .withColumn("genre_count", count_genres(col("genres"))) \
+        .withColumn("primary_genre", get_primary_genre(col("genres")))
+    
+    # Stage 2.4: Score Calculations (Composite Metrics)
+    print("   📌 Stage 2.4: Composite score calculations...")
+    stage4_df = stage3_df \
+        .withColumn("weighted_score",
+            spark_round(
+                (col("vote_average") * log(col("vote_count") + 1)) / 
+                greatest(log(spark_max("vote_count").over(Window.partitionBy(lit(1))) + 1), lit(1)),
+                2
+            )) \
+        .withColumn("popularity_rating_index",
+            spark_round(
+                (col("popularity") / 100) * col("vote_average"),
+                2
+            )) \
+        .withColumn("commercial_success_index",
+            when(col("budget") > 0,
+                spark_round(
+                    (col("revenue") / col("budget")) * (col("vote_average") / 10),
+                    2
+                ))
+            .otherwise(None))
+    
+    # Stage 2.5: Add Processing Metadata
+    print("   📌 Stage 2.5: Adding metadata...")
+    processed_df = stage4_df \
+        .withColumn("batch_processed_at", current_timestamp()) \
+        .withColumn("layer", lit("batch")) \
+        .withColumn("data_quality_score",
+            spark_round(
+                (when(col("title").isNotNull(), lit(0.2)).otherwise(lit(0))) +
+                (when(col("release_date").isNotNull(), lit(0.2)).otherwise(lit(0))) +
+                (when(col("vote_count") > 0, lit(0.2)).otherwise(lit(0))) +
+                (when(col("budget") > 0, lit(0.2)).otherwise(lit(0))) +
+                (when(col("revenue") > 0, lit(0.2)).otherwise(lit(0))),
+                2
+            ))
