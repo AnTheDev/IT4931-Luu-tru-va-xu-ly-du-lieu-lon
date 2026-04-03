@@ -446,3 +446,102 @@ def load_and_process_data():
                 (when(col("revenue") > 0, lit(0.2)).otherwise(lit(0))),
                 2
             ))
+    
+
+        
+    # Filter valid records
+    print("   📌 Filtering valid records...")
+    clean_df = processed_df \
+        .filter(col("id").isNotNull()) \
+        .filter(col("title").isNotNull()) \
+        .filter(col("title") != "")
+    
+    # PARTITION STRATEGY: Repartition by year for better parallelism
+    print("\n📊 PARTITIONING: Repartitioning by release_year...")
+    partitioned_df = clean_df.repartition(col("release_year"))
+    
+    # Persist processed data for reuse
+    print("💾 CACHING: Persisting processed data...")
+    partitioned_df.persist(StorageLevel.MEMORY_AND_DISK)
+    
+    clean_count = partitioned_df.count()
+    print(f"   ✅ Clean records: {clean_count}")
+    
+    # QUERY OPTIMIZATION: Show execution plan
+    print("\n📋 QUERY EXECUTION PLAN (Optimized):")
+    partitioned_df.explain(mode="formatted")
+    
+    return partitioned_df
+
+
+# BROADCAST JOIN OPERATIONS
+def perform_broadcast_joins(movies_df):
+    """
+    Perform BROADCAST JOINs with lookup tables
+    Broadcast join is optimal when one table is small enough to fit in memory
+    """
+    print("\n" + "=" * 80)
+    print("🔗 STAGE 3: BROADCAST JOIN OPERATIONS")
+    print("=" * 80)
+    
+    # Create lookup tables
+    genre_lookup = create_genre_lookup()
+    language_lookup = create_language_lookup()
+    decade_lookup = create_decade_lookup()
+    
+    # 3.1: Explode genres and broadcast join with genre lookup
+    print("   🔗 3.1: Genre Enrichment (Broadcast Join)...")
+    movies_with_genres = movies_df \
+        .withColumn("genre", explode(split(col("genres"), ", "))) \
+        .withColumn("genre", trim(col("genre")))
+    
+    genre_enriched = movies_with_genres.join(
+        broadcast(genre_lookup),
+        movies_with_genres["genre"] == genre_lookup["genre_name"],
+        "left"
+    ).select(
+        movies_with_genres["*"],
+        genre_lookup["genre_description"],
+        genre_lookup["genre_priority"],
+        genre_lookup["genre_category"]
+    )
+    print("   ✅ Genre enrichment complete")
+    
+    # 3.2: Language enrichment
+    print("   🔗 3.2: Language Enrichment (Broadcast Join)...")
+    language_enriched = movies_df.join(
+        broadcast(language_lookup),
+        movies_df["original_language"] == language_lookup["lang_code"],
+        "left"
+    ).select(
+        movies_df["*"],
+        language_lookup["lang_name"],
+        language_lookup["lang_region"],
+        language_lookup["is_major"].alias("is_major_language")
+    )
+    print("   ✅ Language enrichment complete")
+    
+    # 3.3: Decade enrichment
+    print("   🔗 3.3: Decade Enrichment (Broadcast Join)...")
+    decade_enriched = movies_df.join(
+        broadcast(decade_lookup),
+        movies_df["decade"] == decade_lookup["decade"],
+        "left"
+    ).select(
+        movies_df["*"],
+        decade_lookup["era_name"],
+        decade_lookup["era_characteristic"]
+    )
+    print("   ✅ Decade enrichment complete")
+    
+    # Show broadcast join execution plan
+    print("\n📋 Broadcast Join Execution Plan:")
+    genre_enriched.explain(mode="simple")
+    
+    return {
+        "genre_enriched": genre_enriched,
+        "language_enriched": language_enriched,
+        "decade_enriched": decade_enriched
+    }
+
+
