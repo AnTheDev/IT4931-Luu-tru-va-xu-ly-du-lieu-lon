@@ -75,3 +75,17 @@ def build_api_response(content, metadata=None):
     if metadata:
         response_body["meta"] = metadata
     return response_body
+
+def apply_pagination(data_list, current_page=1, items_per_page=20):
+    """Hàm phân trang cho danh sách dữ liệu"""
+    start_index = (current_page - 1) * items_per_page
+    end_index = start_index + items_per_page
+    
+    return {
+        "items": data_list[start_index:end_index],
+        "total_records": len(data_list),
+        "current_page": current_page,
+        "per_page": items_per_page,
+        "total_pages": (len(data_list) + items_per_page - 1) // items_per_page
+    }
+
