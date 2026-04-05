@@ -39,3 +39,39 @@ mongodb_database = mongo_client['BIGDATA']
 # Cấu trúc bộ nhớ đệm (In-memory Cache)
 data_cache_store = {}
 cache_expiry_registry = {}
+
+def cached(ttl_seconds=None):
+    """Decorator quản lý bộ nhớ đệm theo thời gian (TTL)"""
+    def decorator(target_function):
+        @wraps(target_function)
+        def wrapper(*args, **kwargs):
+            ttl = ttl_seconds or CACHE_EXPIRATION_TIME
+            # Tạo key dựa trên tên hàm và tham số truyền vào
+            cache_identifier = f"{target_function.__name__}:{str(args)}:{str(sorted(kwargs.items()))}"
+            
+            # Kiểm tra dữ liệu trong cache còn hạn không
+            if cache_identifier in data_cache_store:
+                last_cached_time = cache_expiry_registry.get(cache_identifier, 0)
+                if time.time() - last_cached_time < ttl:
+                    return data_cache_store[cache_identifier]
+            
+            # Nếu không có hoặc hết hạn, thực thi hàm và lưu lại
+            execution_result = target_function(*args, **kwargs)
+            data_cache_store[cache_identifier] = execution_result
+            cache_expiry_registry[cache_identifier] = time.time()
+            return execution_result
+        return wrapper
+    return decorator
+
+
+def build_api_response(content, metadata=None):
+    """Chuẩn hóa cấu trúc phản hồi API"""
+    response_body = {
+        "success": True,
+        "data": content,
+        "timestamp": datetime.now().isoformat(),
+        "layer": "serving_layer"
+    }
+    if metadata:
+        response_body["meta"] = metadata
+    return response_body
