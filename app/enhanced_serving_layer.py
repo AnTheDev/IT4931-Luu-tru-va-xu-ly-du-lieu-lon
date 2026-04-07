@@ -89,3 +89,98 @@ def apply_pagination(data_list, current_page=1, items_per_page=20):
         "total_pages": (len(data_list) + items_per_page - 1) // items_per_page
     }
 
+def merge_batch_and_speed_records(batch_records, speed_records, unique_key):
+    """
+    Hợp nhất bản ghi từ Batch Layer và Speed Layer.
+    Speed data có độ ưu tiên cao hơn (ghi đè) nếu trùng khóa.
+    """
+    combined_map = {}
+    
+    # Nạp dữ liệu từ Batch Layer trước
+    for record in batch_records:
+        record_id = str(record.get(unique_key))
+        if record_id:
+            combined_map[record_id] = record.copy()
+            combined_map[record_id]['source_layer'] = 'batch'
+            combined_map[record_id]['_mongo_id'] = str(record.get('_id', ''))
+    
+    # Ghi đè hoặc thêm mới từ Speed Layer (Dữ liệu thời gian thực)
+    for record in speed_records:
+        record_id = str(record.get(unique_key))
+        if record_id:
+            if record_id in combined_map:
+                # Cập nhật các trường dữ liệu mới từ speed layer
+                for field_name, field_value in record.items():
+                    if field_value is not None:
+                        combined_map[record_id][field_name] = field_value
+                combined_map[record_id]['source_layer'] = 'merged'
+            else:
+                combined_map[record_id] = record.copy()
+                combined_map[record_id]['source_layer'] = 'speed'
+            combined_map[record_id]['_mongo_id'] = str(record.get('_id', ''))
+    
+    final_list = list(combined_map.values())
+    # Loại bỏ ObjectId của MongoDB để tránh lỗi JSON serialize
+    for item in final_list:
+        if '_id' in item: del item['_id']
+    
+    return final_list
+
+
+def merge_aggregated_stats(batch_agg_data, speed_agg_data, group_by_field, sum_fields=None, weight_avg_fields=None):
+    """
+    Hợp nhất dữ liệu thống kê từ 2 layer.
+    - sum_fields: Các trường cần cộng dồn (ví dụ: doanh thu).
+    - weight_avg_fields: Các trường cần tính lại trung bình có trọng số (ví dụ: điểm đánh giá).
+    """
+    sum_fields = sum_fields or []
+    weight_avg_fields = weight_avg_fields or []
+    merged_stats = {}
+    
+    # Xử lý Batch Aggregations
+    for entry in batch_agg_data:
+        key = str(entry.get(group_by_field))
+        if key:
+            merged_stats[key] = entry.copy()
+            merged_stats[key]['batch_count'] = entry.get('movie_count', 0)
+            merged_stats[key]['_mongo_id'] = str(entry.get('_id', ''))
+    
+    # Cập nhật Incremental từ Speed Layer
+    for entry in speed_agg_data:
+        key = str(entry.get(group_by_field))
+        if key:
+            if key in merged_stats:
+                b_count = merged_stats[key].get('batch_count', 0)
+                s_count = entry.get('movie_count', 0)
+                total_count = b_count + s_count
+                
+                merged_stats[key]['movie_count'] = total_count
+                
+                # Tính trung bình có trọng số (Weighted Average)
+                for field in weight_avg_fields:
+                    if b_count > 0 and s_count > 0:
+                        b_val = merged_stats[key].get(field, 0) or 0
+                        s_val = entry.get(field, 0) or 0
+                        merged_stats[key][field] = round(
+                            (b_val * b_count + s_val * s_count) / total_count, 2
+                        )
+                
+                # Tính tổng cộng dồn (Sum)
+                for field in sum_fields:
+                    if field in entry:
+                        current_total = merged_stats[key].get(field, 0) or 0
+                        incremental_val = entry.get(field, 0) or 0
+                        merged_stats[key][field] = current_total + incremental_val
+                
+                merged_stats[key]['source_layer'] = 'merged'
+                merged_stats[key]['speed_count'] = s_count
+            else:
+                merged_stats[key] = entry.copy()
+                merged_stats[key]['source_layer'] = 'speed'
+            merged_stats[key]['_mongo_id'] = str(entry.get('_id', ''))
+    
+    result_list = list(merged_stats.values())
+    for item in result_list:
+        if '_id' in item: del item['_id']
+    
+    return result_list
