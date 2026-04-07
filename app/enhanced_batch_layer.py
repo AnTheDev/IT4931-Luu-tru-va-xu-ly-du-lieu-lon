@@ -904,3 +904,129 @@ def create_pivot_tables(df):
         "language_decade_pivot": language_decade_pivot,
         "unpivoted_example": unpivoted_df
     }
+
+
+# SAVE TO MONGODB (SERVING LAYER)
+def save_to_mongodb(df, collection_name, id_field=None):
+    """Lưu DataFrame vào MongoDB Serving Layer"""
+    if not MONGO_ENABLED:
+        print(f"   ℹ️  MongoDB disabled, skipping: {collection_name}")
+        return True
+    
+    try:
+        writer = df.write \
+            .format("mongodb") \
+            .option("connection.uri", CONNECTION_STRING) \
+            .option("database", "BIGDATA") \
+            .option("collection", collection_name)
+        
+        if id_field:
+            writer = writer.option("idFieldList", id_field)
+        
+        writer.mode("overwrite").save()
+        print(f"   ✅ Saved to MongoDB: {collection_name}")
+        return True
+    except Exception as e:
+        print(f"   ❌ MongoDB error ({collection_name}): {str(e)}")
+        return False
+
+
+# MAIN BATCH LAYER EXECUTION
+def run_batch_layer():
+    """Main function to run enhanced batch layer"""
+    print("\n" + "=" * 80)
+    print("🔄 STARTING ENHANCED BATCH LAYER PROCESSING")
+    print("=" * 80)
+    
+    try:
+        # Stage 1 & 2: Load and Transform Data
+        movies_df = load_and_process_data()
+        
+        # Stage 3: Broadcast Joins
+        join_results = perform_broadcast_joins(movies_df)
+        
+        # Stage 4: Self-Join Analysis
+        similar_movies = perform_self_join_analysis(movies_df)
+        
+        # Stage 5: Window Analytics
+        analytics = create_window_analytics(movies_df)
+        
+        # Stage 6: Pivot Tables
+        pivot_tables = create_pivot_tables(movies_df)
+        
+        # STAGE 7: SAVE TO MONGODB (SERVING LAYER)
+        print("\n" + "=" * 80)
+        print("💾 STAGE 7: SAVING TO MONGODB (SERVING LAYER)")
+        print("=" * 80)
+        
+        # Master Dataset
+        print("\n   📦 Saving Master Dataset...")
+        save_to_mongodb(movies_df, "batch_movies", "id")
+        
+        # Analytics Views
+        print("\n   📊 Saving Analytics Views...")
+        save_to_mongodb(analytics["genre_stats"], "batch_genre_stats", "genre")
+        save_to_mongodb(analytics["year_stats"], "batch_year_stats", "release_year")
+        save_to_mongodb(analytics["director_stats"].limit(500), "batch_director_stats", "director")
+        save_to_mongodb(analytics["language_stats"], "batch_language_stats", "original_language")
+        save_to_mongodb(analytics["top_movies"], "batch_top_movies", "id")
+        
+        # Pivot Tables
+        print("\n   📊 Saving Pivot Tables...")
+        save_to_mongodb(pivot_tables["decade_rating_pivot"], "batch_decade_rating_pivot")
+        save_to_mongodb(pivot_tables["quarter_budget_pivot"], "batch_quarter_budget_pivot")
+        save_to_mongodb(pivot_tables["year_genre_pivot"], "batch_year_genre_pivot")
+        save_to_mongodb(pivot_tables["language_decade_pivot"], "batch_language_decade_pivot")
+        
+        # Enriched Data
+        print("\n   📊 Saving Enriched Data...")
+        save_to_mongodb(join_results["language_enriched"], "batch_language_enriched", "id")
+        save_to_mongodb(join_results["decade_enriched"], "batch_decade_enriched", "id")
+        save_to_mongodb(similar_movies, "batch_similar_movies")
+        
+        # CLEANUP
+        print("\n🧹 Cleaning up cached data...")
+        movies_df.unpersist()
+        print("   ✅ Cache cleared")
+        
+        # SUMMARY
+        print("\n" + "=" * 80)
+        print("✅ ENHANCED BATCH LAYER COMPLETED!")
+        print("=" * 80)
+        
+        print("\n📊 BATCH LAYER SUMMARY:")
+        print(f"   - Master Dataset: {movies_df.count()} movies")
+        print(f"   - Genre Stats: {analytics['genre_stats'].count()} genres")
+        print(f"   - Year Stats: {analytics['year_stats'].count()} years")
+        print(f"   - Director Stats: {analytics['director_stats'].count()} directors")
+        print(f"   - Language Stats: {analytics['language_stats'].count()} languages")
+        print(f"   - Top Movies: {analytics['top_movies'].count()} movies")
+        print(f"   - Pivot Tables: 4 tables")
+        
+        print("\n🎯 ADVANCED FEATURES DEMONSTRATED:")
+        print("   ✅ Window Functions: rank, row_number, dense_rank, lag, lead, ntile, percent_rank, cume_dist")
+        print("   ✅ Pivot Tables: 4 cross-tabulation views")
+        print("   ✅ Unpivot: Stack function for long format conversion")
+        print("   ✅ Custom UDFs: 9 business logic functions")
+        print("   ✅ Broadcast Joins: Genre, Language, Decade enrichment")
+        print("   ✅ Self-Join: Similar movie detection (Sort-Merge)")
+        print("   ✅ Multi-stage Transformations: 5 transformation stages")
+        print("   ✅ Caching: MEMORY_AND_DISK persistence")
+        print("   ✅ Partitioning: Repartition by release_year")
+        print("   ✅ Query Optimization: Explain plans, AQE enabled")
+        
+    except Exception as e:
+        print(f"\n❌ BATCH LAYER FAILED: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    try:
+        run_batch_layer()
+    except Exception as e:
+        print(f"\n❌ FATAL ERROR: {str(e)}")
+        sys.exit(1)
+    finally:
+        spark.stop()
