@@ -89,6 +89,8 @@ def apply_pagination(data_list, current_page=1, items_per_page=20):
         "total_pages": (len(data_list) + items_per_page - 1) // items_per_page
     }
 
+#==========================================
+# 2. HÀM HỢP NHẤT DỮ LIỆU
 def merge_batch_and_speed_records(batch_records, speed_records, unique_key):
     """
     Hợp nhất bản ghi từ Batch Layer và Speed Layer.
@@ -156,7 +158,7 @@ def merge_aggregated_stats(batch_agg_data, speed_agg_data, group_by_field, sum_f
                 
                 merged_stats[key]['movie_count'] = total_count
                 
-                # Tính trung bình có trọng số (Weighted Average)
+                # Tính trung bình Weighted Average
                 for field in weight_avg_fields:
                     if b_count > 0 and s_count > 0:
                         b_val = merged_stats[key].get(field, 0) or 0
@@ -165,7 +167,6 @@ def merge_aggregated_stats(batch_agg_data, speed_agg_data, group_by_field, sum_f
                             (b_val * b_count + s_val * s_count) / total_count, 2
                         )
                 
-                # Tính tổng cộng dồn (Sum)
                 for field in sum_fields:
                     if field in entry:
                         current_total = merged_stats[key].get(field, 0) or 0
