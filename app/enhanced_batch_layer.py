@@ -545,3 +545,362 @@ def perform_broadcast_joins(movies_df):
     }
 
 
+# SELF-JOIN FOR MOVIE COMPARISONS
+def perform_self_join_analysis(movies_df):
+    """
+    Perform SELF-JOIN for comparing movies within same year/genre
+    Uses Sort-Merge Join for large datasets
+    """
+    print("\n" + "=" * 80)
+    print("🔗 STAGE 4: SELF-JOIN ANALYSIS")
+    print("=" * 80)
+    
+    # Prepare datasets for self-join
+    # Select only necessary columns to reduce shuffle
+    movies_a = movies_df.select(
+        col("id").alias("id_a"),
+        col("title").alias("title_a"),
+        col("release_year").alias("year_a"),
+        col("primary_genre").alias("genre_a"),
+        col("vote_average").alias("rating_a"),
+        col("revenue").alias("revenue_a"),
+        col("popularity").alias("popularity_a")
+    ).filter(col("id_a").isNotNull())
+    
+    movies_b = movies_df.select(
+        col("id").alias("id_b"),
+        col("title").alias("title_b"),
+        col("release_year").alias("year_b"),
+        col("primary_genre").alias("genre_b"),
+        col("vote_average").alias("rating_b"),
+        col("revenue").alias("revenue_b"),
+        col("popularity").alias("popularity_b")
+    ).filter(col("id_b").isNotNull())
+    
+    # Self-join: Find similar movies (same year and genre)
+    print("   🔗 Finding similar movies (Sort-Merge Join)...")
+    similar_movies = movies_a.join(
+        movies_b,
+        (movies_a["year_a"] == movies_b["year_b"]) & 
+        (movies_a["genre_a"] == movies_b["genre_b"]) &
+        (movies_a["id_a"] < movies_b["id_b"]),  # Avoid duplicates
+        "inner"
+    ).withColumn("rating_diff", spark_abs(col("rating_a") - col("rating_b"))) \
+     .withColumn("is_competitive", col("rating_diff") < 0.5) \
+     .filter(col("is_competitive")) \
+     .select(
+         col("id_a"), col("title_a"), col("id_b"), col("title_b"),
+         col("year_a").alias("year"), col("genre_a").alias("genre"),
+         col("rating_a"), col("rating_b"), col("rating_diff")
+     ).limit(1000)  # Limit for performance
+    
+    print(f"   ✅ Found similar movie pairs")
+    
+    return similar_movies
+
+
+# COMPLEX WINDOW FUNCTION ANALYTICS
+def create_window_analytics(df):
+    """
+    Create advanced analytics using Window Functions
+    - RANK, ROW_NUMBER, DENSE_RANK
+    - LAG, LEAD for time series
+    - NTILE for quartile analysis
+    - PERCENT_RANK, CUME_DIST for distribution
+    """
+    print("\n" + "=" * 80)
+    print("📊 STAGE 5: WINDOW FUNCTION ANALYTICS")
+    print("=" * 80)
+    
+    # 5.1: GENRE ANALYTICS with Window Functions
+    print("   📈 5.1: Genre Analytics with Rankings...")
+    genre_exploded = df \
+        .withColumn("genre", explode(split(col("genres"), ", "))) \
+        .withColumn("genre", trim(col("genre"))) \
+        .filter(col("genre") != "")
+    
+    # Window specifications
+    genre_rating_window = Window.partitionBy("genre").orderBy(desc("vote_average"))
+    genre_revenue_window = Window.partitionBy("genre").orderBy(desc("revenue"))
+    genre_popularity_window = Window.partitionBy("genre").orderBy(desc("popularity"))
+    
+    genre_with_rankings = genre_exploded \
+        .withColumn("rating_rank", rank().over(genre_rating_window)) \
+        .withColumn("rating_dense_rank", dense_rank().over(genre_rating_window)) \
+        .withColumn("rating_row_num", row_number().over(genre_rating_window)) \
+        .withColumn("revenue_rank", rank().over(genre_revenue_window)) \
+        .withColumn("popularity_rank", rank().over(genre_popularity_window)) \
+        .withColumn("rating_percent_rank", spark_round(percent_rank().over(genre_rating_window), 4)) \
+        .withColumn("rating_cume_dist", spark_round(cume_dist().over(genre_rating_window), 4))
+    
+    # Aggregate genre statistics
+    genre_stats = genre_exploded.groupBy("genre").agg(
+        count("*").alias("movie_count"),
+        spark_round(avg("vote_average"), 2).alias("avg_rating"),
+        spark_round(stddev("vote_average"), 2).alias("rating_stddev"),
+        spark_round(stddev_pop("vote_average"), 2).alias("rating_stddev_pop"),
+        spark_round(variance("vote_average"), 2).alias("rating_variance"),
+        spark_round(avg("popularity"), 2).alias("avg_popularity"),
+        spark_sum("revenue").alias("total_revenue"),
+        spark_sum("budget").alias("total_budget"),
+        spark_round(avg("runtime"), 0).alias("avg_runtime"),
+        spark_max("vote_average").alias("max_rating"),
+        spark_min("vote_average").alias("min_rating"),
+        percentile_approx("vote_average", 0.25).alias("rating_25th_percentile"),
+        percentile_approx("vote_average", 0.5).alias("rating_median"),
+        percentile_approx("vote_average", 0.75).alias("rating_75th_percentile"),
+        approx_count_distinct("original_language").alias("unique_languages"),
+        collect_set("rating_category").alias("rating_categories"),
+        count(when(col("is_profitable"), True)).alias("profitable_count")
+    ).withColumn("profitability_rate", 
+        spark_round(col("profitable_count") / col("movie_count") * 100, 2)
+    ).withColumn("avg_roi",
+        when(col("total_budget") > 0,
+             spark_round((col("total_revenue") - col("total_budget")) / col("total_budget") * 100, 2))
+        .otherwise(None)
+    ).withColumn("batch_processed_at", current_timestamp()) \
+     .withColumn("layer", lit("batch"))
+    
+    # 5.2: YEAR ANALYTICS with LAG/LEAD (Time Series Analysis)
+    print("   📈 5.2: Year Analytics with LAG/LEAD...")
+    year_base_stats = df.filter(col("release_year").isNotNull()).groupBy("release_year").agg(
+        count("*").alias("movie_count"),
+        spark_round(avg("vote_average"), 2).alias("avg_rating"),
+        spark_round(avg("popularity"), 2).alias("avg_popularity"),
+        spark_sum("revenue").alias("total_revenue"),
+        spark_sum("budget").alias("total_budget"),
+        count(when(col("is_profitable"), True)).alias("profitable_count"),
+        spark_round(avg("runtime"), 0).alias("avg_runtime"),
+        approx_count_distinct("original_language").alias("unique_languages"),
+        approx_count_distinct("primary_genre").alias("unique_genres")
+    )
+    
+    year_window = Window.orderBy("release_year")
+    
+    year_stats = year_base_stats \
+        .withColumn("prev_year_movies", lag("movie_count", 1).over(year_window)) \
+        .withColumn("next_year_movies", lead("movie_count", 1).over(year_window)) \
+        .withColumn("prev_2_year_movies", lag("movie_count", 2).over(year_window)) \
+        .withColumn("prev_year_revenue", lag("total_revenue", 1).over(year_window)) \
+        .withColumn("prev_year_rating", lag("avg_rating", 1).over(year_window)) \
+        .withColumn("yoy_movie_growth", 
+            when(col("prev_year_movies") > 0, 
+                 spark_round((col("movie_count") - col("prev_year_movies")) / col("prev_year_movies") * 100, 2))
+            .otherwise(None)) \
+        .withColumn("yoy_revenue_growth",
+            when(col("prev_year_revenue") > 0,
+                 spark_round((col("total_revenue") - col("prev_year_revenue")) / col("prev_year_revenue") * 100, 2))
+            .otherwise(None)) \
+        .withColumn("yoy_rating_change",
+            spark_round(col("avg_rating") - col("prev_year_rating"), 2)) \
+        .withColumn("cumulative_movies", spark_sum("movie_count").over(year_window)) \
+        .withColumn("cumulative_revenue", spark_sum("total_revenue").over(year_window)) \
+        .withColumn("moving_avg_3y_movies",
+            spark_round(avg("movie_count").over(
+                Window.orderBy("release_year").rowsBetween(-2, 0)
+            ), 0)) \
+        .withColumn("moving_avg_3y_rating",
+            spark_round(avg("avg_rating").over(
+                Window.orderBy("release_year").rowsBetween(-2, 0)
+            ), 2)) \
+        .withColumn("batch_processed_at", current_timestamp()) \
+        .withColumn("layer", lit("batch"))
+    
+    # 5.3: DIRECTOR ANALYTICS with NTILE
+    print("   📈 5.3: Director Analytics with NTILE...")
+    director_exploded = df \
+        .withColumn("director", explode(split(col("directors"), ", "))) \
+        .withColumn("director", trim(col("director"))) \
+        .filter(col("director") != "")
+    
+    director_base_stats = director_exploded.groupBy("director").agg(
+        count("*").alias("movie_count"),
+        spark_round(avg("vote_average"), 2).alias("avg_rating"),
+        spark_round(avg("popularity"), 2).alias("avg_popularity"),
+        spark_sum("revenue").alias("total_revenue"),
+        spark_sum("budget").alias("total_budget"),
+        collect_list("title").alias("movies"),
+        collect_set("primary_genre").alias("genres_worked"),
+        spark_min("release_year").alias("first_movie_year"),
+        spark_max("release_year").alias("latest_movie_year"),
+        count(when(col("is_profitable"), True)).alias("profitable_movies")
+    ).filter(col("movie_count") >= 2) \
+     .withColumn("career_span", col("latest_movie_year") - col("first_movie_year")) \
+     .withColumn("profitability_rate", 
+        spark_round(col("profitable_movies") / col("movie_count") * 100, 2))
+    
+    director_window = Window.orderBy(desc("avg_rating"))
+    revenue_director_window = Window.orderBy(desc("total_revenue"))
+    prolific_director_window = Window.orderBy(desc("movie_count"))
+    
+    director_stats = director_base_stats \
+        .withColumn("rating_quartile", ntile(4).over(director_window)) \
+        .withColumn("revenue_quartile", ntile(4).over(revenue_director_window)) \
+        .withColumn("prolific_quartile", ntile(4).over(prolific_director_window)) \
+        .withColumn("rating_decile", ntile(10).over(director_window)) \
+        .withColumn("director_tier", 
+            when(col("rating_quartile") == 1, "Top 25%")
+            .when(col("rating_quartile") == 2, "Top 50%")
+            .when(col("rating_quartile") == 3, "Top 75%")
+            .otherwise("Bottom 25%")) \
+        .withColumn("batch_processed_at", current_timestamp()) \
+        .withColumn("layer", lit("batch"))
+    
+    # 5.4: LANGUAGE ANALYTICS
+    print("   📈 5.4: Language Analytics...")
+    language_window = Window.orderBy(desc("movie_count"))
+    
+    language_stats = df.groupBy("original_language").agg(
+        count("*").alias("movie_count"),
+        spark_round(avg("vote_average"), 2).alias("avg_rating"),
+        spark_round(avg("popularity"), 2).alias("avg_popularity"),
+        spark_sum("revenue").alias("total_revenue"),
+        spark_sum("budget").alias("total_budget"),
+        spark_round(avg("runtime"), 0).alias("avg_runtime"),
+        count(when(col("is_profitable"), True)).alias("profitable_count"),
+        approx_count_distinct("release_year").alias("active_years")
+    ).filter(col("movie_count") >= 5) \
+     .withColumn("language_rank", rank().over(language_window)) \
+     .withColumn("market_share", 
+        spark_round(col("movie_count") / spark_sum("movie_count").over(Window.partitionBy(lit(1))) * 100, 2)) \
+     .withColumn("batch_processed_at", current_timestamp()) \
+     .withColumn("layer", lit("batch"))
+    
+    # 5.5: TOP MOVIES with Global Rankings
+    print("   📈 5.5: Top Movies with Global Rankings...")
+    global_rating_window = Window.orderBy(desc("vote_average"), desc("vote_count"))
+    global_popularity_window = Window.orderBy(desc("popularity"))
+    global_revenue_window = Window.orderBy(desc("revenue"))
+    global_roi_window = Window.orderBy(desc("roi_percent"))
+    
+    top_movies = df.filter(col("vote_count") >= 100) \
+        .select(
+            "id", "title", "vote_average", "vote_count", "popularity",
+            "revenue", "budget", "profit", "profit_margin", "release_year",
+            "genres", "directors", "original_language", "primary_genre",
+            "rating_category", "budget_category", "decade", "roi_percent",
+            "profitability_tier", "runtime_category", "popularity_category",
+            "data_quality_score", "batch_processed_at", "layer"
+        ) \
+        .withColumn("global_rating_rank", rank().over(global_rating_window)) \
+        .withColumn("global_popularity_rank", rank().over(global_popularity_window)) \
+        .withColumn("global_revenue_rank", rank().over(global_revenue_window)) \
+        .withColumn("global_roi_rank", rank().over(global_roi_window)) \
+        .withColumn("rating_percentile", 
+            spark_round((1 - percent_rank().over(global_rating_window)) * 100, 1)) \
+        .orderBy(desc("vote_average"), desc("vote_count")) \
+        .limit(1000)
+    
+    return {
+        "genre_stats": genre_stats,
+        "genre_with_rankings": genre_with_rankings.limit(5000),
+        "year_stats": year_stats,
+        "director_stats": director_stats,
+        "language_stats": language_stats,
+        "top_movies": top_movies
+    }
+
+
+# PIVOT AND UNPIVOT OPERATIONS
+def create_pivot_tables(df):
+    """
+    Create PIVOT tables for cross-tabulation analysis
+    """
+    print("\n" + "=" * 80)
+    print("📊 STAGE 6: PIVOT TABLES")
+    print("=" * 80)
+    
+    # 6.1: Decade x Rating Category (Movie Count)
+    print("   📈 6.1: Decade x Rating Category Pivot...")
+    decade_rating_pivot = df \
+        .filter(col("decade").isNotNull()) \
+        .filter(col("rating_category").isNotNull()) \
+        .groupBy("decade") \
+        .pivot("rating_category", 
+               ["Masterpiece", "Excellent", "Good", "Above Average", 
+                "Average", "Below Average", "Poor", "Very Poor"]) \
+        .agg(count("*")) \
+        .na.fill(0) \
+        .orderBy("decade") \
+        .withColumn("batch_processed_at", current_timestamp()) \
+        .withColumn("layer", lit("batch"))
+    
+    # 6.2: Quarter x Budget Category (Avg Revenue in Millions)
+    print("   📈 6.2: Quarter x Budget Category Pivot...")
+    quarter_budget_pivot = df \
+        .filter(col("release_quarter").isNotNull()) \
+        .filter(col("budget_category").isNotNull()) \
+        .groupBy("release_quarter") \
+        .pivot("budget_category", 
+               ["Mega Blockbuster", "Blockbuster", "Big Budget", 
+                "Medium High", "Medium Budget", "Low Medium", "Low Budget", "Micro Budget"]) \
+        .agg(spark_round(avg("revenue") / 1000000, 2)) \
+        .na.fill(0) \
+        .orderBy("release_quarter") \
+        .withColumn("batch_processed_at", current_timestamp()) \
+        .withColumn("layer", lit("batch"))
+    
+    # 6.3: Year x Primary Genre (Movie Count)
+    print("   📈 6.3: Year x Primary Genre Pivot...")
+    # Get top 10 genres
+    top_genres = df.groupBy("primary_genre").count() \
+        .orderBy(desc("count")).limit(10).collect()
+    top_genre_list = [row["primary_genre"] for row in top_genres if row["primary_genre"]]
+    
+    year_genre_pivot = df \
+        .filter(col("release_year").isNotNull()) \
+        .filter(col("primary_genre").isin(top_genre_list)) \
+        .groupBy("release_year") \
+        .pivot("primary_genre", top_genre_list) \
+        .agg(count("*")) \
+        .na.fill(0) \
+        .orderBy("release_year") \
+        .withColumn("batch_processed_at", current_timestamp()) \
+        .withColumn("layer", lit("batch"))
+    
+    # 6.4: Language x Decade (Average Rating)
+    print("   📈 6.4: Language x Decade Pivot...")
+    # Get top 10 languages
+    top_languages = df.groupBy("original_language").count() \
+        .orderBy(desc("count")).limit(10).collect()
+    top_lang_list = [row["original_language"] for row in top_languages if row["original_language"]]
+    
+    language_decade_pivot = df \
+        .filter(col("decade").isNotNull()) \
+        .filter(col("original_language").isin(top_lang_list)) \
+        .groupBy("decade") \
+        .pivot("original_language", top_lang_list) \
+        .agg(spark_round(avg("vote_average"), 2)) \
+        .na.fill(0) \
+        .orderBy("decade") \
+        .withColumn("batch_processed_at", current_timestamp()) \
+        .withColumn("layer", lit("batch"))
+    
+    # 6.5: UNPIVOT Example - Convert Pivot back to long format
+    print("   📈 6.5: UNPIVOT example...")
+    # Create a smaller pivot to unpivot
+    sample_pivot = df.filter(col("decade").isNotNull()) \
+        .groupBy("decade") \
+        .pivot("profitability_tier", ["Extremely Profitable", "Highly Profitable", "Profitable", "Break Even"]) \
+        .agg(count("*")) \
+        .na.fill(0)
+    
+    # Unpivot using stack
+    unpivot_expr = "stack(4, " \
+                   "'Extremely Profitable', `Extremely Profitable`, " \
+                   "'Highly Profitable', `Highly Profitable`, " \
+                   "'Profitable', `Profitable`, " \
+                   "'Break Even', `Break Even`) as (profitability_tier, movie_count)"
+    
+    unpivoted_df = sample_pivot.selectExpr("decade", unpivot_expr) \
+        .filter(col("movie_count") > 0) \
+        .withColumn("batch_processed_at", current_timestamp()) \
+        .withColumn("layer", lit("batch"))
+    
+    return {
+        "decade_rating_pivot": decade_rating_pivot,
+        "quarter_budget_pivot": quarter_budget_pivot,
+        "year_genre_pivot": year_genre_pivot,
+        "language_decade_pivot": language_decade_pivot,
+        "unpivoted_example": unpivoted_df
+    }
