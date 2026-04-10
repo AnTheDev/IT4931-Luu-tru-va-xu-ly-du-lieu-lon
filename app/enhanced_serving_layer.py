@@ -185,3 +185,50 @@ def merge_aggregated_stats(batch_agg_data, speed_agg_data, group_by_field, sum_f
         if '_id' in item: del item['_id']
     
     return result_list
+
+@app.route('/')
+def api_documentation():
+    """Trang hướng dẫn sử dụng API"""
+    return jsonify({
+        "service": "Lambda Architecture - Enhanced Serving Layer",
+        "version": "2.1",
+        "endpoints": {
+            "movies": ["/api/movies", "/api/movies/search", "/api/movies/<id>"],
+            "statistics": ["/api/stats/genres", "/api/stats/years", "/api/stats/languages", "/api/stats/directors"],
+            "rankings": ["/api/top/movies", "/api/top/profitable", "/api/top/popular"],
+            "analytics": ["/api/analytics/decade-rating", "/api/analytics/quarter-budget", "/api/analytics/year-genre", "/api/analytics/trends"],
+            "monitoring": ["/api/lambda/status", "/api/health", "/api/metrics"]
+        }
+    })
+
+
+@app.route('/api/health')
+def health_check():
+    """Kiểm tra trạng thái kết nối DB"""
+    health_status = {
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat(),
+        "components": {}
+    }
+    try:
+        mongo_client.admin.command('ping')
+        health_status["components"]["mongodb"] = {"status": "connected", "db": "BIGDATA"}
+    except Exception as error:
+        health_status["components"]["mongodb"] = {"status": "error", "error": str(error)}
+        health_status["status"] = "degraded"
+    return jsonify(health_status)
+
+
+@app.route('/api/metrics')
+def system_metrics():
+    """Thống kê số lượng bản ghi các collection"""
+    try:
+        coll_stats = {name: {"count": mongodb_database[name].count_documents({})} 
+                      for name in mongodb_database.list_collection_names()}
+        return jsonify({
+            "timestamp": datetime.now().isoformat(),
+            "collections": coll_stats,
+            "cache_status": {"items_cached": len(data_cache_store), "ttl": CACHE_EXPIRATION_TIME}
+        })
+    except Exception as error:
+        return jsonify({"error": str(error)}), 500
