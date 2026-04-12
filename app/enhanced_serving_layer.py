@@ -186,6 +186,9 @@ def merge_aggregated_stats(batch_agg_data, speed_agg_data, group_by_field, sum_f
     
     return result_list
 
+
+#==========================================
+# 3. ĐIỂM ĐẦU VÀO CHÍNH (API ENDPOINTS)
 @app.route('/')
 def api_documentation():
     """Trang hướng dẫn sử dụng API"""
@@ -232,3 +235,87 @@ def system_metrics():
         })
     except Exception as error:
         return jsonify({"error": str(error)}), 500
+    
+    #=====================================
+    
+@app.route('/api/movies')
+def get_movies_list():
+    """Lấy danh sách phim kết hợp từ Batch và Speed Layer"""
+    limit_val = int(request.args.get('limit', 20))
+    page_val = int(request.args.get('page', 1))
+    sort_field = request.args.get('sort_by', 'popularity')
+    sort_order = -1 if request.args.get('order', 'desc') == 'desc' else 1
+    
+    # Bộ lọc
+    filter_query = {}
+    if request.args.get('year'): filter_query['release_year'] = int(request.args.get('year'))
+    if request.args.get('genre'): filter_query['genres'] = {'$regex': request.args.get('genre'), '$options': 'i'}
+    if request.args.get('language'): filter_query['original_language'] = request.args.get('language')
+    
+    try:
+        batch_data = list(mongodb_database['batch_movies'].find(filter_query, {'_id': 0})
+                          .sort(sort_field, sort_order).limit(limit_val * 2))
+        
+        speed_data = list(mongodb_database['speed_movies'].find(filter_query, {'_id': 0})
+                          .sort('processed_at', -1).limit(limit_val))
+        
+        merged_results = merge_batch_and_speed_records(batch_data, speed_data, 'id')
+        merged_results.sort(key=lambda x: x.get(sort_field, 0) or 0, reverse=(sort_order == -1))
+        
+        paginated_data = apply_pagination(merged_results, page_val, limit_val)
+        
+        return jsonify(build_api_response(
+            paginated_data["items"],
+            {
+                "pagination": paginated_data,
+                "data_sources": {"batch_raw_count": len(batch_data), "speed_raw_count": len(speed_data)}
+            }
+        ))
+    except Exception as error:
+        return jsonify({"success": False, "error": str(error)}), 500
+
+
+@app.route('/api/movies/search')
+def search_movies_db():
+    """Tìm kiếm phim theo từ khóa"""
+    search_term = request.args.get('q', '')
+    limit_val = int(request.args.get('limit', 20))
+    
+    if not search_term:
+        return jsonify({"success": False, "error": "Missing 'q' parameter"}), 400
+    
+    try:
+        regex_filter = {"$regex": search_term, "$options": "i"}
+        batch_search = list(mongodb_database['batch_movies'].find({
+            "$or": [{"title": regex_filter}, {"overview": regex_filter}, {"genres": regex_filter}]
+        }, {'_id': 0}).limit(limit_val))
+        
+        speed_search = list(mongodb_database['speed_movies'].find({
+            "$or": [{"title": regex_filter}, {"genres_flat": regex_filter}]
+        }, {'_id': 0}).limit(limit_val))
+        
+        merged = merge_batch_and_speed_records(batch_search, speed_search, 'id')
+        return jsonify(build_api_response(merged[:limit_val], {"query": search_term}))
+    except Exception as error:
+        return jsonify({"success": False, "error": str(error)}), 500
+
+
+@app.route('/api/movies/<movie_id>')
+def get_single_movie(movie_id):
+    """Chi tiết một bộ phim theo ID"""
+    try:
+        batch_record = mongodb_database['batch_movies'].find_one({'id': int(movie_id)}, {'_id': 0})
+        speed_record = mongodb_database['speed_movies'].find_one({'id': movie_id}, {'_id': 0})
+        
+        if batch_record and speed_record:
+            result = {**batch_record, **speed_record, 'source_layer': 'merged'}
+        elif speed_record:
+            result = {**speed_record, 'source_layer': 'speed'}
+        elif batch_record:
+            result = {**batch_record, 'source_layer': 'batch'}
+        else:
+            return jsonify({"success": False, "error": "Movie not found"}), 404
+            
+        return jsonify(build_api_response(result))
+    except Exception as error:
+        return jsonify({"success": False, "error": str(error)}), 500
