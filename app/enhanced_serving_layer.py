@@ -392,4 +392,55 @@ def get_director_statistics():
         return jsonify(build_api_response(stats, {"tiers": ["Top 25%", "Top 50%", "Top 75%", "Bottom 25%"]}))
     except Exception as error:
         return jsonify({"success": False, "error": str(error)}), 500
+    
+    #===========================================
+    #API ranking
+    @app.route('/api/top/movies')
+@cached(ttl_seconds=60)
+def get_top_rated_movies():
+    """Top phim điểm cao nhất"""
+    limit_val = int(request.args.get('limit', 20))
+    sort_by = request.args.get('sort_by', 'vote_average')
+    
+    try:
+        batch_top = list(mongodb_database['batch_top_movies'].find({}, {'_id': 0}).sort(sort_by, -1).limit(limit_val))
+        speed_top = list(mongodb_database['speed_top_movies'].find({}, {'_id': 0}).sort('popularity', -1).limit(limit_val))
+        
+        merged = merge_batch_and_speed_records(batch_top, speed_top, 'id')
+        merged.sort(key=lambda x: x.get(sort_by, 0) or 0, reverse=True)
+        return jsonify(build_api_response(merged[:limit_val]))
+    except Exception as error:
+        return jsonify({"success": False, "error": str(error)}), 500
+
+
+@app.route('/api/top/profitable')
+@cached(ttl_seconds=120)
+def get_most_profitable():
+    """Top phim sinh lời cao nhất (ROI)"""
+    limit_val = int(request.args.get('limit', 20))
+    try:
+        data = list(mongodb_database['batch_top_movies'].find({'is_profitable': True}, {'_id': 0})
+                    .sort('roi_percent', -1).limit(limit_val))
+        return jsonify(build_api_response(data))
+    except Exception as error:
+        return jsonify({"success": False, "error": str(error)}), 500
+
+
+@app.route('/api/top/popular')
+@cached(ttl_seconds=60)
+def get_most_popular():
+    """Top phim phổ biến (Ưu tiên Real-time từ Speed Layer)"""
+    limit_val = int(request.args.get('limit', 20))
+    try:
+        speed_data = list(mongodb_database['speed_top_movies'].find({}, {'_id': 0}).sort('popularity', -1).limit(limit_val))
+        if len(speed_data) < limit_val:
+            batch_data = list(mongodb_database['batch_top_movies'].find({}, {'_id': 0}).sort('popularity', -1).limit(limit_val))
+            merged = merge_batch_and_speed_records(batch_data, speed_data, 'id')
+            merged.sort(key=lambda x: x.get('popularity', 0) or 0, reverse=True)
+            final = merged[:limit_val]
+        else:
+            final = speed_data
+        return jsonify(build_api_response(final, {"source": "speed_layer_prioritized"}))
+    except Exception as error:
+        return jsonify({"success": False, "error": str(error)}), 500
 
