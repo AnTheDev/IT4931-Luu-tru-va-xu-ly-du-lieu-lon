@@ -1,14 +1,25 @@
 #!/usr/bin/env python3
 
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, from_json
+from pyspark.sql.functions import (
+    col,
+    from_json,
+    current_timestamp,
+    lit,
+    year,
+    to_date
+)
+
 from pyspark.sql.types import (
     StructType,
     StructField,
     StringType,
     IntegerType,
-    BooleanType
+    BooleanType,
+    FloatType
 )
+
+from pyspark.sql.functions import udf
 
 import os
 from dotenv import load_dotenv
@@ -23,8 +34,18 @@ MASTER = os.environ.get("MASTER", "local[*]")
 KAFKA_BROKER1 = os.environ.get("KAFKA_BROKER1", "localhost:9092")
 MOVIE_TOPIC = os.environ.get("MOVIE_TOPIC", "movie")
 
+CONNECTION_STRING = os.environ.get(
+    "CONNECTION_STRING",
+    "mongodb://localhost:27017"
+)
+
+MONGO_ENABLED = (
+    os.environ.get("MONGO_ENABLED", "true")
+    .lower() == "true"
+)
+
 print("=" * 60)
-print("⚡ SPEED LAYER SETUP")
+print("⚡ SPEED LAYER - MICRO BATCH PROCESSING")
 print("=" * 60)
 print(f"Kafka Broker : {KAFKA_BROKER1}")
 print(f"Kafka Topic  : {MOVIE_TOPIC}")
@@ -36,12 +57,15 @@ print("=" * 60)
 
 spark = (
     SparkSession.builder
-    .appName("SpeedLayerSetup")
+    .appName("SpeedLayerMicroBatch")
     .master(MASTER)
     .config(
-        "spark.jars.packages",
-        "org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.1"
-    )
+    "spark.jars.packages",
+    ",".join([
+        "org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.1",
+        "org.mongodb.spark:mongo-spark-connector_2.12:10.4.0"
+    ])
+)
     .getOrCreate()
 )
 
@@ -70,6 +94,157 @@ MOVIE_STREAM_SCHEMA = StructType([
     StructField("ingested_at", StringType(), True)
 ])
 
+#UDF
+@udf(returnType=FloatType())
+def safe_float_convert(value):
+    try:
+        return float(value)
+    except:
+        return None
+
+
+@udf(returnType=StringType())
+def categorize_popularity_stream(popularity):
+
+    if popularity is None:
+        return "Unknown"
+
+    try:
+        pop = float(popularity)
+
+        if pop >= 100:
+            return "Viral"
+        elif pop >= 50:
+            return "Trending"
+        elif pop >= 20:
+            return "Popular"
+        elif pop >= 10:
+            return "Moderate"
+        else:
+            return "Niche"
+
+    except:
+        return "Unknown"
+
+
+@udf(returnType=StringType())
+def categorize_rating_stream(rating):
+
+    if rating is None:
+        return "Unknown"
+
+    try:
+        r = float(rating)
+
+        if r >= 8:
+            return "Excellent"
+        elif r >= 7:
+            return "Good"
+        elif r >= 5:
+            return "Average"
+        elif r >= 3:
+            return "Below Average"
+        else:
+            return "Poor"
+
+    except:
+        return "Unknown"
+
+def save_to_mongodb(df, collection_name):
+
+    if not MONGO_ENABLED:
+        return
+
+    try:
+
+        df.write \
+            .format("mongodb") \
+            .option(
+                "connection.uri",
+                CONNECTION_STRING
+            ) \
+            .option(
+                "database",
+                "BIGDATA"
+            ) \
+            .option(
+                "collection",
+                collection_name
+            ) \
+            .mode("append") \
+            .save()
+
+        print(
+            f"Saved to MongoDB: {collection_name}"
+        )
+
+    except Exception as e:
+
+        print(
+            f"MongoDB error: {str(e)}"
+        )
+
+def process_micro_batch(df, epoch_id):
+
+    if df.rdd.isEmpty():
+        return
+
+    print(
+        f"\nProcessing epoch {epoch_id}"
+    )
+
+    processed_df = (
+        df
+        .withColumn(
+            "vote_average",
+            safe_float_convert(
+                col("vote_average")
+            )
+        )
+        .withColumn(
+            "popularity",
+            safe_float_convert(
+                col("popularity")
+            )
+        )
+        .withColumn(
+            "release_year",
+            year(
+                to_date(
+                    col("release_date")
+                )
+            )
+        )
+        .withColumn(
+            "rating_category",
+            categorize_rating_stream(
+                col("vote_average")
+            )
+        )
+        .withColumn(
+            "popularity_category",
+            categorize_popularity_stream(
+                col("popularity")
+            )
+        )
+        .withColumn(
+            "processed_at",
+            current_timestamp()
+        )
+        .withColumn(
+            "layer",
+            lit("speed")
+        )
+    )
+
+    processed_df.show(
+        truncate=False
+    )
+
+    save_to_mongodb(
+        processed_df,
+        "speed_movies"
+    )
 # =====================================
 # MAIN
 # =====================================
@@ -105,12 +280,13 @@ def run_speed_layer():
     )
 
     query = (
-        parsed_df.writeStream
-        .format("console")
-        .outputMode("append")
-        .option("truncate", False)
-        .start()
+    parsed_df.writeStream
+    .foreachBatch(
+        process_micro_batch
     )
+    .outputMode("append")
+    .start()
+)
 
     print("\n🚀 Speed Layer Started")
     print("Waiting for Kafka messages...")
