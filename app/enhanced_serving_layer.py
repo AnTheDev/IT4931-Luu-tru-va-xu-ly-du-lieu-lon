@@ -319,3 +319,77 @@ def get_single_movie(movie_id):
         return jsonify(build_api_response(result))
     except Exception as error:
         return jsonify({"success": False, "error": str(error)}), 500
+    
+#===========================================
+@app.route('/api/stats/genres')
+@cached(ttl_seconds=60)
+def get_genre_statistics():
+    """Thống kê theo thể loại"""
+    try:
+        batch_stats = list(mongodb_database['batch_genre_stats'].find({}, {'_id': 0}))
+        speed_stats = list(mongodb_database['speed_genre_stats'].find({}, {'_id': 0}))
+        
+        merged = merge_aggregated_stats(
+            batch_stats, speed_stats, 'genre',
+            sum_fields=['total_revenue', 'total_budget', 'profitable_count'],
+            weight_avg_fields=['avg_rating', 'avg_popularity']
+        )
+        merged.sort(key=lambda x: x.get('movie_count', 0), reverse=True)
+        return jsonify(build_api_response(merged))
+    except Exception as error:
+        return jsonify({"success": False, "error": str(error)}), 500
+
+
+@app.route('/api/stats/years')
+@cached(ttl_seconds=60)
+def get_year_statistics():
+    """Thống kê theo năm phát hành"""
+    try:
+        batch_stats = list(mongodb_database['batch_year_stats'].find({}, {'_id': 0}))
+        speed_stats = list(mongodb_database['speed_year_stats'].find({}, {'_id': 0}))
+        
+        merged = merge_aggregated_stats(
+            batch_stats, speed_stats, 'release_year',
+            sum_fields=['total_revenue', 'total_budget', 'profitable_count'],
+            weight_avg_fields=['avg_rating', 'avg_popularity']
+        )
+        merged.sort(key=lambda x: x.get('release_year', 0), reverse=True)
+        return jsonify(build_api_response(merged))
+    except Exception as error:
+        return jsonify({"success": False, "error": str(error)}), 500
+
+
+@app.route('/api/stats/languages')
+@cached(ttl_seconds=60)
+def get_language_statistics():
+    """Thống kê theo ngôn ngữ"""
+    try:
+        batch_stats = list(mongodb_database['batch_language_stats'].find({}, {'_id': 0}))
+        speed_stats = list(mongodb_database['speed_language_stats'].find({}, {'_id': 0}))
+        
+        merged = merge_aggregated_stats(
+            batch_stats, speed_stats, 'original_language',
+            sum_fields=['total_revenue'],
+            weight_avg_fields=['avg_rating', 'avg_popularity']
+        )
+        merged.sort(key=lambda x: x.get('movie_count', 0), reverse=True)
+        return jsonify(build_api_response(merged))
+    except Exception as error:
+        return jsonify({"success": False, "error": str(error)}), 500
+
+
+@app.route('/api/stats/directors')
+@cached(ttl_seconds=120)
+def get_director_statistics():
+    """Thống kê đạo diễn từ Batch Layer"""
+    limit_val = int(request.args.get('limit', 50))
+    tier_filter = request.args.get('tier')
+    
+    try:
+        query = {'director_tier': tier_filter} if tier_filter else {}
+        stats = list(mongodb_database['batch_director_stats'].find(query, {'_id': 0})
+                     .sort('movie_count', -1).limit(limit_val))
+        return jsonify(build_api_response(stats, {"tiers": ["Top 25%", "Top 50%", "Top 75%", "Bottom 25%"]}))
+    except Exception as error:
+        return jsonify({"success": False, "error": str(error)}), 500
+
