@@ -7,7 +7,11 @@ from pyspark.sql.functions import (
     current_timestamp,
     lit,
     year,
-    to_date
+    to_date,
+    avg,
+    count,
+    desc,
+    round as spark_round
 )
 
 from pyspark.sql.types import (
@@ -45,7 +49,7 @@ MONGO_ENABLED = (
 )
 
 print("=" * 60)
-print("⚡ SPEED LAYER - MICRO BATCH PROCESSING")
+print("⚡ SPEED LAYER - ANALYTICS")
 print("=" * 60)
 print(f"Kafka Broker : {KAFKA_BROKER1}")
 print(f"Kafka Topic  : {MOVIE_TOPIC}")
@@ -242,8 +246,119 @@ def process_micro_batch(df, epoch_id):
     )
 
     save_to_mongodb(
-        processed_df,
-        "speed_movies"
+    processed_df,
+    "speed_movies"
+)
+
+compute_realtime_aggregations(
+    processed_df,
+    epoch_id
+)
+
+def compute_realtime_aggregations(df, epoch_id):
+
+    print(
+        f"Computing analytics for epoch {epoch_id}"
+    )
+
+    # =====================
+    # Genre Statistics
+    # =====================
+
+    genre_stats = (
+        df
+        .groupBy("genres")
+        .agg(
+            count("*").alias("movie_count"),
+            spark_round(
+                avg("vote_average"),
+                2
+            ).alias("avg_rating"),
+            spark_round(
+                avg("popularity"),
+                2
+            ).alias("avg_popularity")
+        )
+        .withColumn(
+            "updated_at",
+            current_timestamp()
+        )
+    )
+
+    save_to_mongodb(
+        genre_stats,
+        "speed_genre_stats"
+    )
+
+    # =====================
+    # Release Year Statistics
+    # =====================
+
+    year_stats = (
+        df
+        .groupBy("release_year")
+        .agg(
+            count("*").alias("movie_count"),
+            spark_round(
+                avg("vote_average"),
+                2
+            ).alias("avg_rating")
+        )
+        .withColumn(
+            "updated_at",
+            current_timestamp()
+        )
+    )
+
+    save_to_mongodb(
+        year_stats,
+        "speed_year_stats"
+    )
+
+    # =====================
+    # Language Statistics
+    # =====================
+
+    language_stats = (
+        df
+        .groupBy("original_language")
+        .agg(
+            count("*").alias("movie_count"),
+            spark_round(
+                avg("vote_average"),
+                2
+            ).alias("avg_rating")
+        )
+        .withColumn(
+            "updated_at",
+            current_timestamp()
+        )
+    )
+
+    save_to_mongodb(
+        language_stats,
+        "speed_language_stats"
+    )
+
+    # =====================
+    # Top Movies
+    # =====================
+
+    top_movies = (
+        df
+        .orderBy(
+            desc("popularity")
+        )
+        .limit(100)
+    )
+
+    save_to_mongodb(
+        top_movies,
+        "speed_top_movies"
+    )
+
+    print(
+        f"Analytics completed for epoch {epoch_id}"
     )
 # =====================================
 # MAIN
