@@ -500,5 +500,57 @@ def get_market_trends():
     except Exception as error:
         return jsonify({"success": False, "error": str(error)}), 500
 
+#===========================================
+#lambda status
+#=============================================
 
+@app.route('/api/lambda/status')
+def get_lambda_architecture_status():
+    """Tổng quan trạng thái toàn bộ hệ thống Lambda"""
+    try:
+        # Trạng thái Batch Layer
+        batch_count = mongodb_database['batch_movies'].count_documents({})
+        latest_batch = mongodb_database['batch_movies'].find_one({}, sort=[('batch_processed_at', -1)])
+        
+        # Trạng thái Speed Layer
+        speed_count = mongodb_database['speed_movies'].count_documents({})
+        latest_speed = mongodb_database['speed_movies'].find_one({}, sort=[('processed_at', -1)])
+
+        status_report = {
+            "timestamp": datetime.now().isoformat(),
+            "layers": {
+                "batch_layer": {
+                    "status": "active" if batch_count > 0 else "inactive",
+                    "total_records": batch_count,
+                    "last_run": str(latest_batch.get('batch_processed_at')) if latest_batch else None
+                },
+                "speed_layer": {
+                    "status": "streaming" if speed_count > 0 else "waiting",
+                    "total_records": speed_count,
+                    "last_event": str(latest_speed.get('processed_at')) if latest_speed else None
+                },
+                "serving_layer": {
+                    "cache_items": len(data_cache_store),
+                    "connection": "stable"
+                }
+            }
+        }
+        return jsonify(status_report)
+    except Exception as error:
+        return jsonify({"error": str(error)}), 500
+
+
+@app.route('/api/lambda/collections')
+def list_all_collections():
+    """Liệt kê chi tiết các bảng dữ liệu"""
+    try:
+        colls = {}
+        for name in mongodb_database.list_collection_names():
+            colls[name] = {
+                "count": mongodb_database[name].count_documents({}),
+                "type": "batch" if "batch" in name else "speed" if "speed" in name else "other"
+            }
+        return jsonify(build_api_response(colls))
+    except Exception as error:
+        return jsonify({"error": str(error)}), 500
 
