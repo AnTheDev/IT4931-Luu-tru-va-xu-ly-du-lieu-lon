@@ -395,7 +395,7 @@ def get_director_statistics():
     
     #===========================================
     #API ranking
-    @app.route('/api/top/movies')
+@app.route('/api/top/movies')
 @cached(ttl_seconds=60)
 def get_top_rated_movies():
     """Top phim điểm cao nhất"""
@@ -443,4 +443,62 @@ def get_most_popular():
         return jsonify(build_api_response(final, {"source": "speed_layer_prioritized"}))
     except Exception as error:
         return jsonify({"success": False, "error": str(error)}), 500
+    
+#===========================================
+#API analytics
+@app.route('/api/analytics/decade-rating')
+@cached(ttl_seconds=300)
+def analytics_decade_rating():
+    """Bảng chuyển trục Thập kỷ x Xếp hạng"""
+    try:
+        data = list(mongodb_database['batch_decade_rating_pivot'].find({}, {'_id': 0}))
+        return jsonify(build_api_response(data, {"type": "pivot", "metric": "movie_count"}))
+    except Exception as error:
+        return jsonify({"success": False, "error": str(error)}), 500
+
+
+@app.route('/api/analytics/quarter-budget')
+@cached(ttl_seconds=300)
+def analytics_quarter_budget():
+    """Bảng chuyển trục Quý x Ngân sách"""
+    try:
+        data = list(mongodb_database['batch_quarter_budget_pivot'].find({}, {'_id': 0}))
+        return jsonify(build_api_response(data, {"type": "pivot", "metric": "avg_revenue"}))
+    except Exception as error:
+        return jsonify({"success": False, "error": str(error)}), 500
+
+
+@app.route('/api/analytics/year-genre')
+@cached(ttl_seconds=300)
+def analytics_year_genre():
+    """Bảng chuyển trục Năm x Thể loại"""
+    try:
+        data = list(mongodb_database['batch_year_genre_pivot'].find({}, {'_id': 0}))
+        return jsonify(build_api_response(data))
+    except Exception as error:
+        return jsonify({"success": False, "error": str(error)}), 500
+
+
+@app.route('/api/analytics/trends')
+@cached(ttl_seconds=60)
+def get_market_trends():
+    """Phân tích xu hướng tăng trưởng YoY"""
+    try:
+        year_data = list(mongodb_database['batch_year_stats'].find(
+            {'yoy_movie_growth': {'$exists': True}}, {'_id': 0}
+        ).sort('release_year', -1).limit(20))
+        
+        if year_data:
+            avg_growth = sum([y.get('yoy_movie_growth', 0) or 0 for y in year_data]) / len(year_data)
+        else:
+            avg_growth = 0
+            
+        return jsonify(build_api_response({
+            "trends": year_data,
+            "summary": {"avg_yoy_growth_percent": round(avg_growth, 2)}
+        }))
+    except Exception as error:
+        return jsonify({"success": False, "error": str(error)}), 500
+
+
 
