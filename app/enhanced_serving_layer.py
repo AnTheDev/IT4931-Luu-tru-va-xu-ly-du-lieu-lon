@@ -554,3 +554,48 @@ def list_all_collections():
     except Exception as error:
         return jsonify({"error": str(error)}), 500
 
+
+#===========================================
+#  CHẠY SERVER
+#===========================================
+
+
+@app.route('/api/raw/genres')
+def metabase_raw_genres():
+    data = list(mongodb_database['batch_genre_stats'].find({}, {'_id': 0}))
+    return Response(json.dumps(data), mimetype='application/json')
+
+@app.route('/api/raw/years')
+def metabase_raw_years():
+    data = list(mongodb_database['batch_year_stats'].find({}, {'_id': 0}).sort('release_year', 1))
+    return Response(json.dumps(data), mimetype='application/json')
+
+@app.route('/api/raw/movies')
+def metabase_raw_movies():
+    limit_val = int(request.args.get('limit', 1000))
+    data = list(mongodb_database['batch_movies'].find({}, {'_id': 0}).limit(limit_val))
+    return Response(json.dumps(data), mimetype='application/json')
+
+
+# ==========================================
+#  ERROR & main
+# ==========================================
+
+@app.errorhandler(404)
+def handle_404(e):
+    return jsonify({"success": False, "error": "Endpoint not found"}), 404
+
+@app.errorhandler(500)
+def handle_500(e):
+    return jsonify({"success": False, "error": "Internal server error", "details": str(e)}), 500
+
+
+def start_server():
+    """Khởi chạy Serving Layer"""
+    print(f"\n🚀 Serving Layer đang chạy tại: http://0.0.0.0:{SERVER_PORT}")
+    print(f"📖 Tài liệu hướng dẫn API: http://0.0.0.0:{SERVER_PORT}/\n")
+    app.run(host='0.0.0.0', port=SERVER_PORT, debug=IS_DEBUG_MODE, threaded=True)
+
+
+if __name__ == "__main__":
+    start_server()
