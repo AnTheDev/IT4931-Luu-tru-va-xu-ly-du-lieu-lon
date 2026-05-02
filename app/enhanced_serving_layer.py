@@ -10,7 +10,7 @@ from pymongo import MongoClient
 from dotenv import load_dotenv
 
 # ==========================================
-# 1. CẤU HÌNH HỆ THỐNG (CONFIGURATION)
+# CẤU HÌNH HỆ THỐNG (CONFIGURATION)
 # ==========================================
 load_dotenv()
 
@@ -90,7 +90,8 @@ def apply_pagination(data_list, current_page=1, items_per_page=20):
     }
 
 #==========================================
-# 2. HÀM HỢP NHẤT DỮ LIỆU
+# HÀM HỢP NHẤT DỮ LIỆU
+#==========================================
 def merge_batch_and_speed_records(batch_records, speed_records, unique_key):
     """
     Hợp nhất bản ghi từ Batch Layer và Speed Layer.
@@ -188,7 +189,8 @@ def merge_aggregated_stats(batch_agg_data, speed_agg_data, group_by_field, sum_f
 
 
 #==========================================
-# 3. ĐIỂM ĐẦU VÀO CHÍNH (API ENDPOINTS)
+# API ENDPOINTS
+#==========================================
 @app.route('/')
 def api_documentation():
     """Trang hướng dẫn sử dụng API"""
@@ -236,6 +238,8 @@ def system_metrics():
     except Exception as error:
         return jsonify({"error": str(error)}), 500
     
+    #=====================================
+    #API movies
     #=====================================
     
 @app.route('/api/movies')
@@ -321,6 +325,8 @@ def get_single_movie(movie_id):
         return jsonify({"success": False, "error": str(error)}), 500
     
 #===========================================
+#API statistics
+#===========================================
 @app.route('/api/stats/genres')
 @cached(ttl_seconds=60)
 def get_genre_statistics():
@@ -395,6 +401,7 @@ def get_director_statistics():
     
     #===========================================
     #API ranking
+    #===========================================
 @app.route('/api/top/movies')
 @cached(ttl_seconds=60)
 def get_top_rated_movies():
@@ -446,6 +453,7 @@ def get_most_popular():
     
 #===========================================
 #API analytics
+#===========================================
 @app.route('/api/analytics/decade-rating')
 @cached(ttl_seconds=300)
 def analytics_decade_rating():
@@ -589,7 +597,6 @@ def handle_404(e):
 def handle_500(e):
     return jsonify({"success": False, "error": "Internal server error", "details": str(e)}), 500
 
-
 def start_server():
     """Khởi chạy Serving Layer"""
     print(f"\n🚀 Serving Layer đang chạy tại: http://0.0.0.0:{SERVER_PORT}")
@@ -597,5 +604,8 @@ def start_server():
     app.run(host='0.0.0.0', port=SERVER_PORT, debug=IS_DEBUG_MODE, threaded=True)
 
 
+
 if __name__ == "__main__":
     start_server()
+
+
