@@ -363,6 +363,64 @@ def compute_realtime_aggregations(df, epoch_id):
 # =====================================
 # MAIN
 # =====================================
+def create_window_aggregation_query(df):
+
+    genre_windowed = (
+        df
+        .groupBy(
+            window(
+                col("event_time"),
+                "5 minutes"
+            ),
+            col("genres")
+        )
+        .agg(
+            count("*").alias("movie_count"),
+            spark_round(
+                avg("vote_average"),
+                2
+            ).alias("avg_rating"),
+            spark_round(
+                avg("popularity"),
+                2
+            ).alias("avg_popularity")
+        )
+    )
+
+    return genre_windowed
+
+def create_trending_analysis_query(df):
+
+    trending_df = (
+        df
+        .groupBy(
+            window(
+                col("event_time"),
+                "10 minutes",
+                "2 minutes"
+            )
+        )
+        .agg(
+            count("*").alias("total_movies"),
+
+            spark_round(
+                avg("popularity"),
+                2
+            ).alias("avg_popularity"),
+
+            spark_max("popularity")
+                .alias("max_popularity"),
+
+            spark_min("popularity")
+                .alias("min_popularity"),
+
+            stddev("popularity")
+                .alias("popularity_stddev")
+        )
+    )
+
+    return trending_df
+
 
 def run_speed_layer():
     print("\n📡 Connecting to Kafka...")
@@ -391,15 +449,35 @@ def run_speed_layer():
             ).alias("movie"),
             col("kafka_timestamp")
         )
-        .select("movie.*", "kafka_timestamp")
+        .select("movie.*", "kafka_timestamp") \
+.withColumn(
+    "event_time",
+    to_date(
+        col("release_date")
+    )
+)
     )
 
-    query = (
+    query1 = (
     parsed_df.writeStream
     .foreachBatch(
         process_micro_batch
     )
     .outputMode("append")
+    .start()
+)
+    query2 = (
+    window_df.writeStream
+    .outputMode("complete")
+    .format("console")
+    .option("truncate", False)
+    .start()
+)
+    query3 = (
+    trending_df.writeStream
+    .outputMode("complete")
+    .format("console")
+    .option("truncate", False)
     .start()
 )
 
