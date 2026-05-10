@@ -11,7 +11,11 @@ from pyspark.sql.functions import (
     avg,
     count,
     desc,
-    round as spark_round
+    round as spark_round,
+    window,
+    max as spark_max,
+    min as spark_min,
+    stddev
 )
 
 from pyspark.sql.types import (
@@ -24,7 +28,7 @@ from pyspark.sql.types import (
 )
 
 from pyspark.sql.functions import udf
-
+from pyspark.sql.functions import to_timestamp
 import os
 from dotenv import load_dotenv
 
@@ -452,11 +456,16 @@ def run_speed_layer():
         .select("movie.*", "kafka_timestamp") \
 .withColumn(
     "event_time",
-    to_date(
-        col("release_date")
-    )
+      to_timestamp(col("event_time"))
 )
     )
+
+window_df = create_window_aggregation_query(
+    parsed_df
+)
+trending_df = create_trending_analysis_query(
+    parsed_df
+)
 
     query1 = (
     parsed_df.writeStream
@@ -468,14 +477,14 @@ def run_speed_layer():
 )
     query2 = (
     window_df.writeStream
-    .outputMode("complete")
+    .outputMode("update")
     .format("console")
     .option("truncate", False)
     .start()
 )
     query3 = (
     trending_df.writeStream
-    .outputMode("complete")
+    .outputMode("update")
     .format("console")
     .option("truncate", False)
     .start()
@@ -485,6 +494,8 @@ def run_speed_layer():
     print("Waiting for Kafka messages...")
 
     query.awaitTermination()
+    query2.awaitTermination()
+    query3.awaitTermination()
 
 
 if __name__ == "__main__":
