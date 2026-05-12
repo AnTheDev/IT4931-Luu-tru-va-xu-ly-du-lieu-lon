@@ -26,7 +26,7 @@ from pyspark.sql.types import (
     BooleanType,
     FloatType
 )
-
+from pyspark.sql.functions import coalesce
 from pyspark.sql.functions import udf
 from pyspark.sql.functions import to_timestamp
 import os
@@ -254,7 +254,7 @@ def process_micro_batch(df, epoch_id):
     "speed_movies"
 )
 
-compute_realtime_aggregations(
+    compute_realtime_aggregations(
     processed_df,
     epoch_id
 )
@@ -460,10 +460,10 @@ def run_speed_layer():
 )
     )
 
-window_df = create_window_aggregation_query(
+    window_df = create_window_aggregation_query(
     parsed_df
 )
-trending_df = create_trending_analysis_query(
+    trending_df = create_trending_analysis_query(
     parsed_df
 )
 
@@ -493,7 +493,7 @@ trending_df = create_trending_analysis_query(
     print("\n🚀 Speed Layer Started")
     print("Waiting for Kafka messages...")
 
-    query.awaitTermination()
+    query1.awaitTermination()
     query2.awaitTermination()
     query3.awaitTermination()
 
