@@ -9,7 +9,7 @@ from pyspark.sql.types import (
     DoubleType, BooleanType, LongType, ArrayType, FloatType
 )
 from crawler import MovieDB
-from schema import MOVIE_SCHEMA
+from schema import MOVIE_SCHEMA, ACTOR_SCHEMA
 import os
 import sys
 import time
@@ -26,6 +26,7 @@ load_dotenv()
 # Environment variables
 KAFKA_BROKER1 = os.environ.get("KAFKA_BROKER1", "localhost:9092")
 MOVIE_TOPIC = os.environ.get("MOVIE_TOPIC", "movie")
+ACTOR_TOPIC = os.environ.get("ACTOR_TOPIC", "actor")
 
 # MinIO Configuration
 MINIO_ENDPOINT = os.environ.get("MINIO_ENDPOINT", "http://localhost:9000")
@@ -307,6 +308,45 @@ def send_to_kafka(spark, movies):
         return 0
 
 
+def send_actors_to_kafka(spark, actors):
+    """Gửi dữ liệu actor vào Kafka topic"""
+    if not actors:
+        return 0
+    
+    try:
+        # Cast popularity and id to string to match ACTOR_SCHEMA
+        casted_actors = []
+        for a in actors:
+            casted_a = a.copy()
+            if 'popularity' in casted_a and casted_a['popularity'] is not None:
+                casted_a['popularity'] = str(casted_a['popularity'])
+            if 'id' in casted_a and casted_a['id'] is not None:
+                casted_a['id'] = str(casted_a['id'])
+            casted_actors.append(casted_a)
+
+        df = spark.createDataFrame(casted_actors, schema=ACTOR_SCHEMA)
+        
+        # Add ingestion metadata
+        df_with_metadata = df \
+            .withColumn("ingested_at", current_timestamp()) \
+            .withColumn("source", lit("tmdb_api"))
+        
+        # Send to Kafka
+        df_with_metadata \
+            .selectExpr("CAST(id AS STRING) AS key", "to_json(struct(*)) AS value") \
+            .write \
+            .format("kafka") \
+            .option("kafka.bootstrap.servers", KAFKA_BROKER1) \
+            .option("topic", ACTOR_TOPIC) \
+            .mode("append") \
+            .save()
+        
+        return df.count()
+    except Exception as e:
+        print(f"   ❌ Actor Kafka error: {e}")
+        return 0
+
+
 def run_ingestion():
     """Main ingestion loop - Thu thập dữ liệu từ TMDB"""
     print("\n" + "=" * 70)
@@ -343,6 +383,7 @@ def run_ingestion():
     
     year_index = 0
     page_in_year = 1
+    actor_page = 1
     total_ingested = 0
     batch_count = 0
     
@@ -377,6 +418,19 @@ def run_ingestion():
             kafka_count = send_to_kafka(spark, movies)
             if kafka_count > 0:
                 print(f"   ✅ Kafka: Sent {kafka_count} movies")
+            
+            # Crawl and send popular actors
+            try:
+                print(f"   👤 Fetching popular actors page {actor_page}...")
+                actors = movie_db.get_actors(page=actor_page)
+                if actors:
+                    actor_kafka_count = send_actors_to_kafka(spark, actors)
+                    print(f"   ✅ Kafka: Sent {actor_kafka_count} actors")
+                    actor_page = actor_page + 1 if actor_page < 500 else 1
+                else:
+                    print("   ℹ️ No actors fetched or rate limited")
+            except Exception as actor_err:
+                print(f"   ⚠️ Actor crawl error: {actor_err}")
             
             # 2. SAVE TO MINIO (Cold Path - cho Batch Layer)
             if minio_client:
@@ -422,7 +476,8 @@ def run_ingestion():
     print("=" * 70)
     print(f"   Total movies ingested: {total_ingested}")
     print(f"   Total batches: {batch_count}")
-    print(f"   Kafka topic: {MOVIE_TOPIC}")
+    print(f"   Kafka movie topic: {MOVIE_TOPIC}")
+    print(f"   Kafka actor topic: {ACTOR_TOPIC}")
     if MINIO_ENABLED:
         print(f"   MinIO bucket: {MINIO_BUCKET}")
     print("=" * 70)

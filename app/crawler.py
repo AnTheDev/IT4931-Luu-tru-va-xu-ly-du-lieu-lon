@@ -7,14 +7,20 @@ from urllib3.util.retry import Retry
 import time
 
 KAFKA_BOOTSTRAP = os.getenv("KAFKA_BOOTSTRAP", "kafka-cluster-kafka-bootstrap.bigdata.svc.cluster.local:9092")
-MONGO_HOST = os.getenv("MONGO_HOST", "mycluster-mongos.bigdata.svc.cluster.local:27017")
+MONGO_HOST = os.getenv("MONGO_HOST", "mongodb.bigdata.svc.cluster.local:27017")
 
 class MovieDB:
     def __init__(self, max_workers=5) -> None:
         self.url = "https://api.themoviedb.org/3"
+        # Ưu tiên đọc token từ biến môi trường (Secret trên Kubernetes);
+        # fallback về token cũ để không vỡ khi chạy local/dev.
+        tmdb_token = os.getenv(
+            "TMDB_BEARER_TOKEN",
+            "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiI3M2ZkOTg0MmMzMTg2ZDY2OWMxNmEwNmIzYTdjODA2OCIsInN1YiI6IjY1M2IyMzFlMTA5Y2QwMDEyY2ZlMWU2NCIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.5nkctErbJj6FNm__3T8rX1iFXSFw5Qasd3JOXqGOKYU",
+        )
         self.headers = {
             "accept": "application/json",
-            "Authorization": "Bearer eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiI3M2ZkOTg0MmMzMTg2ZDY2OWMxNmEwNmIzYTdjODA2OCIsInN1YiI6IjY1M2IyMzFlMTA5Y2QwMDEyY2ZlMWU2NCIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.5nkctErbJj6FNm__3T8rX1iFXSFw5Qasd3JOXqGOKYU"
+            "Authorization": f"Bearer {tmdb_token}",
         }
         self.session = self._create_session()
         self.max_workers = max_workers

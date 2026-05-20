@@ -1,6 +1,6 @@
 # movie_batch.py
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import from_json, col, year, to_date, when, expr
+from pyspark.sql.functions import from_json, col, year, to_date, when, expr, array_join
 from schema import MOVIE_SCHEMA
 import os
 from dotenv import load_dotenv
@@ -8,10 +8,10 @@ import sys
 
 load_dotenv()
 
-KAFKA_BROKER1 = os.environ["KAFKA_BROKER1"]
-MOVIE_TOPIC = os.environ["MOVIE_TOPIC"]
-ES_NODES = os.environ["ES_NODES"]
-CONNECTION_STRING = os.environ["CONNECTION_STRING"]
+KAFKA_BROKER1 = os.environ.get("KAFKA_BROKER1", "localhost:9092")
+MOVIE_TOPIC = os.environ.get("MOVIE_TOPIC", "movie")
+ES_NODES = os.environ.get("ES_NODES", "localhost")
+CONNECTION_STRING = os.environ.get("CONNECTION_STRING", "mongodb://localhost:27017")
 # Use local[*] if MASTER is not set, or use the one from env
 MASTER = os.environ.get("MASTER", "local[*]")
 
@@ -58,9 +58,9 @@ final_df = parsed \
     .withColumn("budget", col("budget").cast("double")) \
     .withColumn("revenue", col("revenue").cast("double")) \
     .withColumn("runtime", col("runtime").cast("double")) \
-    .withColumn("genres", expr("transform(genres, g -> g.name)")) \
-    .withColumn("production_companies", expr("transform(production_companies, c -> c.name)")) \
-    .withColumn("production_countries", expr("transform(production_countries, c -> c.name)")) \
+    .withColumn("genres", array_join(expr("transform(genres, g -> g.name)"), ", ")) \
+    .withColumn("production_companies", array_join(expr("transform(production_companies, c -> c.name)"), ", ")) \
+    .withColumn("production_countries", array_join(expr("transform(production_countries, c -> c.name)"), ", ")) \
     .withColumn("release_year", year(to_date("release_date", "yyyy-MM-dd"))) \
     .withColumn("profit_ratio", when(col("budget") > 0, (col("revenue") - col("budget")) / col("budget")).otherwise(None))
 
@@ -69,15 +69,15 @@ print(f"Processing {count} movie records...")
 
 # --- MongoDB Write (Batch Layer View) ---
 try:
-    print("Writing to MongoDB (BIGDATA.batch_movie)...")
+    print("Writing to MongoDB (BIGDATA.batch_movies)...")
     final_df.write \
         .format("mongodb") \
         .option("connection.uri", CONNECTION_STRING) \
         .option("database", "BIGDATA") \
-        .option("collection", "batch_movie") \
+        .option("collection", "batch_movies") \
         .option("idFieldList", "id") \
         .option("replaceDocument", "true") \
-        .mode("overwrite") \
+        .mode("append") \
         .save()
     print("MongoDB write SUCCESS")
 except Exception as e:

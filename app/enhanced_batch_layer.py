@@ -41,6 +41,10 @@ CONNECTION_STRING = os.environ.get("CONNECTION_STRING", "mongodb://localhost:270
 MONGO_ENABLED = os.environ.get("MONGO_ENABLED", "true").lower() == "true"
 CSV_PATH = os.environ.get("CSV_PATH", "/data/tmdb.csv")
 
+# Elasticsearch Configuration
+ES_NODES = os.environ.get("ES_NODES", "localhost")
+ES_ENABLED = os.environ.get("ES_ENABLED", "true").lower() == "true"
+
 # MinIO Configuration
 MINIO_ENABLED = os.environ.get("MINIO_ENABLED", "false").lower() == "true"
 MINIO_ENDPOINT = os.environ.get("MINIO_ENDPOINT", "http://minio.bigdata.svc.cluster.local:9000")
@@ -60,12 +64,15 @@ if MONGO_ENABLED:
 if MINIO_ENABLED:
     packages.append('org.apache.hadoop:hadoop-aws:3.3.4')
     packages.append('com.amazonaws:aws-java-sdk-bundle:1.12.500')
+if ES_ENABLED:
+    packages.append('org.elasticsearch:elasticsearch-spark-30_2.12:8.15.0')
 
 print("=" * 80)
 print("🚀 ENHANCED BATCH LAYER - LAMBDA ARCHITECTURE")
 print("=" * 80)
 print(f"📂 Data Source: {'MinIO: ' + MINIO_ENDPOINT if MINIO_ENABLED else 'Local: ' + CSV_PATH}")
 print(f"📦 MongoDB: {CONNECTION_STRING} ({'enabled' if MONGO_ENABLED else 'disabled'})")
+print(f"🔍 Elasticsearch: {ES_NODES} ({'enabled' if ES_ENABLED else 'disabled'})")
 print(f"🔧 Shuffle Partitions: {SHUFFLE_PARTITIONS}")
 print(f"🔧 Broadcast Threshold: {BROADCAST_THRESHOLD} bytes")
 print("=" * 80)
@@ -931,6 +938,32 @@ def save_to_mongodb(df, collection_name, id_field=None):
         return False
 
 
+# SAVE TO ELASTICSEARCH (FULL-TEXT INDEX)
+def save_to_elasticsearch(df, index_name, id_field="id"):
+    """Lưu DataFrame vào Elasticsearch index cho full-text search"""
+    if not ES_ENABLED:
+        print(f"   ℹ️  Elasticsearch disabled, skipping: {index_name}")
+        return True
+    
+    try:
+        df.write \
+            .format("org.elasticsearch.spark.sql") \
+            .option("es.nodes", ES_NODES) \
+            .option("es.port", "9200") \
+            .option("es.resource", index_name) \
+            .option("es.mapping.id", id_field) \
+            .option("es.write.operation", "upsert") \
+            .option("es.nodes.wan.only", "false") \
+            .option("es.net.ssl", "false") \
+            .mode("append") \
+            .save()
+        print(f"   ✅ Saved to Elasticsearch: {index_name}")
+        return True
+    except Exception as e:
+        print(f"   ❌ Elasticsearch error ({index_name}): {str(e)}")
+        return False
+
+
 # MAIN BATCH LAYER EXECUTION
 def run_batch_layer():
     """Main function to run enhanced batch layer"""
@@ -983,6 +1016,12 @@ def run_batch_layer():
         save_to_mongodb(join_results["language_enriched"], "batch_language_enriched", "id")
         save_to_mongodb(join_results["decade_enriched"], "batch_decade_enriched", "id")
         save_to_mongodb(similar_movies, "batch_similar_movies")
+        
+        # STAGE 8: SAVE TO ELASTICSEARCH (FULL-TEXT INDEX)
+        print("\n" + "=" * 80)
+        print("🔍 STAGE 8: SAVING TO ELASTICSEARCH (FULL-TEXT INDEX)")
+        print("=" * 80)
+        save_to_elasticsearch(movies_df, "batch-movie", "id")
         
         # CLEANUP
         print("\n🧹 Cleaning up cached data...")

@@ -2,6 +2,8 @@ import os
 import sys
 import json
 import time
+import threading
+from collections import OrderedDict
 from datetime import datetime
 from functools import wraps
 from flask import Flask, jsonify, request, Response
@@ -17,7 +19,10 @@ load_dotenv()
 MONGO_URI = os.environ.get("CONNECTION_STRING", "mongodb://localhost:27017")
 SERVER_PORT = int(os.environ.get("SERVING_PORT", "5000"))
 CACHE_EXPIRATION_TIME = int(os.environ.get("CACHE_TTL_SECONDS", "60"))
+CACHE_MAX_SIZE = int(os.environ.get("CACHE_MAX_SIZE", "1000"))
 IS_DEBUG_MODE = os.environ.get("DEBUG_MODE", "false").lower() == "true"
+ES_NODES = os.environ.get("ES_NODES", "localhost")
+ES_PORT = os.environ.get("ES_PORT", "9200")
 
 print("=" * 80)
 print("🎯 LAMBDA ARCHITECTURE - ENHANCED SERVING LAYER")
@@ -25,6 +30,7 @@ print("=" * 80)
 print(f"📦 Database Connection : {MONGO_URI}")
 print(f"🌐 Server Listening on : {SERVER_PORT}")
 print(f"⏱️  Cache Expiration    : {CACHE_EXPIRATION_TIME}s")
+print(f"🔍 Elasticsearch       : {ES_NODES}:{ES_PORT}")
 print(f"🔧 Debug Status        : {IS_DEBUG_MODE}")
 print("=" * 80)
 
@@ -36,29 +42,59 @@ CORS(app)
 mongo_client = MongoClient(MONGO_URI)
 mongodb_database = mongo_client['BIGDATA']
 
-# Cấu trúc bộ nhớ đệm (In-memory Cache)
-data_cache_store = {}
+# Kết nối Elasticsearch (graceful fallback nếu ES không khả dụng)
+es_client = None
+try:
+    from elasticsearch import Elasticsearch
+    es_client = Elasticsearch(f"http://{ES_NODES}:{ES_PORT}", request_timeout=5)
+    if es_client.ping():
+        print("✅ Elasticsearch connected")
+    else:
+        print("⚠️  Elasticsearch ping failed, falling back to MongoDB search")
+        es_client = None
+except Exception as e:
+    print(f"⚠️  Elasticsearch unavailable ({e}), falling back to MongoDB search")
+    es_client = None
+
+# Cấu trúc bộ nhớ đệm (Thread-safe, Size-bounded Cache)
+_cache_lock = threading.Lock()
+data_cache_store = OrderedDict()
 cache_expiry_registry = {}
 
 def cached(ttl_seconds=None):
-    """Decorator quản lý bộ nhớ đệm theo thời gian (TTL)"""
+    """Decorator quản lý bộ nhớ đệm theo thời gian (TTL) - thread-safe, size-bounded.
+    Includes request.args in cache key so different query params are cached separately."""
     def decorator(target_function):
         @wraps(target_function)
         def wrapper(*args, **kwargs):
             ttl = ttl_seconds or CACHE_EXPIRATION_TIME
-            # Tạo key dựa trên tên hàm và tham số truyền vào
-            cache_identifier = f"{target_function.__name__}:{str(args)}:{str(sorted(kwargs.items()))}"
+            # Tạo key dựa trên tên hàm, query params (request.args), và tham số truyền vào
+            try:
+                query_string = str(sorted(request.args.items()))
+            except RuntimeError:
+                query_string = ""
+            cache_identifier = f"{target_function.__name__}:{query_string}:{str(args)}:{str(sorted(kwargs.items()))}"
             
-            # Kiểm tra dữ liệu trong cache còn hạn không
-            if cache_identifier in data_cache_store:
-                last_cached_time = cache_expiry_registry.get(cache_identifier, 0)
-                if time.time() - last_cached_time < ttl:
-                    return data_cache_store[cache_identifier]
+            with _cache_lock:
+                # Kiểm tra dữ liệu trong cache còn hạn không
+                if cache_identifier in data_cache_store:
+                    last_cached_time = cache_expiry_registry.get(cache_identifier, 0)
+                    if time.time() - last_cached_time < ttl:
+                        # Move to end (most recently accessed)
+                        data_cache_store.move_to_end(cache_identifier)
+                        return data_cache_store[cache_identifier]
             
             # Nếu không có hoặc hết hạn, thực thi hàm và lưu lại
             execution_result = target_function(*args, **kwargs)
-            data_cache_store[cache_identifier] = execution_result
-            cache_expiry_registry[cache_identifier] = time.time()
+            
+            with _cache_lock:
+                data_cache_store[cache_identifier] = execution_result
+                cache_expiry_registry[cache_identifier] = time.time()
+                # Evict oldest entries when cache exceeds max size
+                while len(data_cache_store) > CACHE_MAX_SIZE:
+                    oldest_key, _ = data_cache_store.popitem(last=False)
+                    cache_expiry_registry.pop(oldest_key, None)
+            
             return execution_result
         return wrapper
     return decorator
@@ -196,14 +232,16 @@ def api_documentation():
     """Trang hướng dẫn sử dụng API"""
     return jsonify({
         "service": "Lambda Architecture - Enhanced Serving Layer",
-        "version": "2.1",
+        "version": "3.0",
         "endpoints": {
             "movies": ["/api/movies", "/api/movies/search", "/api/movies/<id>"],
+            "actors": ["/api/actors", "/api/actors/search", "/api/actors/<id>"],
             "statistics": ["/api/stats/genres", "/api/stats/years", "/api/stats/languages", "/api/stats/directors"],
             "rankings": ["/api/top/movies", "/api/top/profitable", "/api/top/popular"],
             "analytics": ["/api/analytics/decade-rating", "/api/analytics/quarter-budget", "/api/analytics/year-genre", "/api/analytics/trends"],
             "monitoring": ["/api/lambda/status", "/api/health", "/api/metrics"]
-        }
+        },
+        "search_backend": "elasticsearch" if es_client else "mongodb_regex"
     })
 
 
@@ -281,13 +319,59 @@ def get_movies_list():
 
 @app.route('/api/movies/search')
 def search_movies_db():
-    """Tìm kiếm phim theo từ khóa"""
+    """Tìm kiếm phim theo từ khóa - Elasticsearch primary, MongoDB fallback"""
     search_term = request.args.get('q', '')
     limit_val = int(request.args.get('limit', 20))
     
     if not search_term:
         return jsonify({"success": False, "error": "Missing 'q' parameter"}), 400
     
+    search_backend = "mongodb_regex"  # default
+    
+    # Primary path: Elasticsearch full-text search
+    if es_client:
+        try:
+            es_query = {
+                "query": {
+                    "multi_match": {
+                        "query": search_term,
+                        "fields": ["title^3", "overview", "genres"],
+                        "type": "best_fields",
+                        "fuzziness": "AUTO"
+                    }
+                },
+                "size": limit_val
+            }
+            
+            batch_hits = []
+            speed_hits = []
+            
+            # Search batch-movie index
+            try:
+                batch_resp = es_client.search(index="batch-movie", body=es_query)
+                batch_hits = [hit["_source"] for hit in batch_resp["hits"]["hits"]]
+            except Exception:
+                pass  # index may not exist yet
+            
+            # Search speed-movie index
+            try:
+                speed_resp = es_client.search(index="speed-movie", body=es_query)
+                speed_hits = [hit["_source"] for hit in speed_resp["hits"]["hits"]]
+            except Exception:
+                pass  # index may not exist yet
+            
+            if batch_hits or speed_hits:
+                merged = merge_batch_and_speed_records(batch_hits, speed_hits, 'id')
+                search_backend = "elasticsearch"
+                return jsonify(build_api_response(
+                    merged[:limit_val],
+                    {"query": search_term, "search_backend": search_backend}
+                ))
+        except Exception as es_error:
+            # ES failed, fall through to MongoDB fallback
+            print(f"Elasticsearch search error: {es_error}")
+    
+    # Fallback path: MongoDB regex search
     try:
         regex_filter = {"$regex": search_term, "$options": "i"}
         batch_search = list(mongodb_database['batch_movies'].find({
@@ -299,7 +383,10 @@ def search_movies_db():
         }, {'_id': 0}).limit(limit_val))
         
         merged = merge_batch_and_speed_records(batch_search, speed_search, 'id')
-        return jsonify(build_api_response(merged[:limit_val], {"query": search_term}))
+        return jsonify(build_api_response(
+            merged[:limit_val],
+            {"query": search_term, "search_backend": search_backend}
+        ))
     except Exception as error:
         return jsonify({"success": False, "error": str(error)}), 500
 
@@ -308,8 +395,16 @@ def search_movies_db():
 def get_single_movie(movie_id):
     """Chi tiết một bộ phim theo ID"""
     try:
-        batch_record = mongodb_database['batch_movies'].find_one({'id': int(movie_id)}, {'_id': 0})
-        speed_record = mongodb_database['speed_movies'].find_one({'id': movie_id}, {'_id': 0})
+        # Query with both int and string formats to handle type mismatch
+        # between batch layer (int id) and speed layer (string id)
+        id_query = {'$or': [{'id': movie_id}]}
+        try:
+            id_query['$or'].append({'id': int(movie_id)})
+        except (ValueError, TypeError):
+            pass  # non-numeric ID, skip int variant
+        
+        batch_record = mongodb_database['batch_movies'].find_one(id_query, {'_id': 0})
+        speed_record = mongodb_database['speed_movies'].find_one(id_query, {'_id': 0})
         
         if batch_record and speed_record:
             result = {**batch_record, **speed_record, 'source_layer': 'merged'}

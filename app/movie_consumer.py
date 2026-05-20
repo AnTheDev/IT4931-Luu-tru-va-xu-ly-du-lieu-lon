@@ -9,11 +9,11 @@ import sys
 load_dotenv()
 
 
-KAFKA_BROKER1 = os.environ["KAFKA_BROKER1"]
-MOVIE_TOPIC = os.environ["MOVIE_TOPIC"]
-ES_NODES = os.environ["ES_NODES"]
-CONNECTION_STRING = os.environ["CONNECTION_STRING"]
-MASTER = os.environ["MASTER"]
+KAFKA_BROKER1 = os.environ.get("KAFKA_BROKER1", "localhost:9092")
+MOVIE_TOPIC = os.environ.get("MOVIE_TOPIC", "movie")
+ES_NODES = os.environ.get("ES_NODES", "localhost")
+CONNECTION_STRING = os.environ.get("CONNECTION_STRING", "mongodb://localhost:27017")
+MASTER = os.environ.get("MASTER", "local[*]")
 
 
 packages = [

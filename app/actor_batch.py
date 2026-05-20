@@ -9,10 +9,10 @@ import sys
 
 load_dotenv()
 
-KAFKA_BROKER1 = os.environ["KAFKA_BROKER1"]
-ACTOR_TOPIC = os.environ["ACTOR_TOPIC"]
-ES_NODES = os.environ["ES_NODES"]
-CONNECTION_STRING = os.environ["CONNECTION_STRING"]
+KAFKA_BROKER1 = os.environ.get("KAFKA_BROKER1", "localhost:9092")
+ACTOR_TOPIC = os.environ.get("ACTOR_TOPIC", "actor")
+ES_NODES = os.environ.get("ES_NODES", "localhost")
+CONNECTION_STRING = os.environ.get("CONNECTION_STRING", "mongodb://localhost:27017")
 MASTER = os.environ.get("MASTER", "local[*]")
 
 # Load gender mapping

@@ -41,6 +41,10 @@ MOVIE_TOPIC = os.environ.get("MOVIE_TOPIC", "movie")
 CONNECTION_STRING = os.environ.get("CONNECTION_STRING", "mongodb://localhost:27017")
 MONGO_ENABLED = os.environ.get("MONGO_ENABLED", "true").lower() == "true"
 
+# Elasticsearch Configuration
+ES_NODES = os.environ.get("ES_NODES", "localhost")
+ES_ENABLED = os.environ.get("ES_ENABLED", "true").lower() == "true"
+
 # Streaming Configuration
 WATERMARK_DELAY = os.environ.get("WATERMARK_DELAY", "10 minutes")
 WINDOW_DURATION = os.environ.get("WINDOW_DURATION", "5 minutes")
@@ -58,6 +62,8 @@ packages = [
 ]
 if MONGO_ENABLED:
     packages.append('org.mongodb.spark:mongo-spark-connector_2.12:10.4.0')
+if ES_ENABLED:
+    packages.append('org.elasticsearch:elasticsearch-spark-30_2.12:8.15.0')
 
 print("=" * 80)
 print("⚡ ENHANCED SPEED LAYER - LAMBDA ARCHITECTURE")
@@ -65,6 +71,7 @@ print("=" * 80)
 print(f"📡 Kafka: {KAFKA_BROKER1}")
 print(f"📺 Topic: {MOVIE_TOPIC}")
 print(f"📦 MongoDB: {CONNECTION_STRING} ({'enabled' if MONGO_ENABLED else 'disabled'})")
+print(f"🔍 Elasticsearch: {ES_NODES} ({'enabled' if ES_ENABLED else 'disabled'})")
 print(f"⏱️  Watermark Delay: {WATERMARK_DELAY}")
 print(f"🪟 Window Duration: {WINDOW_DURATION}")
 print(f"📊 Trigger Interval: {TRIGGER_INTERVAL}")
@@ -231,6 +238,41 @@ def save_to_mongodb_upsert(df, collection_name, id_field, epoch_id=None):
         return False
 
 
+# SAVE TO ELASTICSEARCH (FULL-TEXT INDEX)
+def save_to_elasticsearch_upsert(df, index_name, id_field, epoch_id=None):
+    """
+    Save DataFrame to Elasticsearch with UPSERT for idempotent writes.
+    Non-blocking: logs error but does not raise, so MongoDB path is unaffected.
+    """
+    if not ES_ENABLED:
+        return
+
+    try:
+        df.write \
+            .format("org.elasticsearch.spark.sql") \
+            .option("es.nodes", ES_NODES) \
+            .option("es.port", "9200") \
+            .option("es.resource", index_name) \
+            .option("es.mapping.id", id_field) \
+            .option("es.write.operation", "upsert") \
+            .option("es.nodes.wan.only", "false") \
+            .option("es.net.ssl", "false") \
+            .mode("append") \
+            .save()
+
+        if epoch_id is not None:
+            sys.stderr.write(f"[Epoch {epoch_id}] \u2705 Elasticsearch: {index_name}\n")
+        else:
+            print(f"   \u2705 Saved to Elasticsearch: {index_name}")
+        return True
+    except Exception as e:
+        if epoch_id is not None:
+            sys.stderr.write(f"[Epoch {epoch_id}] \u274c Elasticsearch ({index_name}): {str(e)}\n")
+        else:
+            print(f"   \u274c Elasticsearch error ({index_name}): {str(e)}")
+        return False
+
+
 # STREAM PROCESSING FUNCTIONS
 def process_micro_batch(df, epoch_id):
     """
@@ -281,6 +323,10 @@ def process_micro_batch(df, epoch_id):
     # STAGE 2: SAVE RAW SPEED DATA (EXACTLY-ONCE)
     sys.stderr.write(f"[Epoch {epoch_id}] Saving raw speed data...\n")
     save_to_mongodb_upsert(processed_df, "speed_movies", "id", epoch_id)
+    
+    # STAGE 2.5: SAVE TO ELASTICSEARCH (FULL-TEXT INDEX)
+    sys.stderr.write(f"[Epoch {epoch_id}] Saving to Elasticsearch...\n")
+    save_to_elasticsearch_upsert(processed_df, "speed-movie", "id", epoch_id)
     
     # STAGE 3: REAL-TIME AGGREGATIONS
     compute_realtime_aggregations(processed_df, epoch_id)
