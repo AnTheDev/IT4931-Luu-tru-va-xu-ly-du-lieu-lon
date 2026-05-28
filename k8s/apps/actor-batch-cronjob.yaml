@@ -1,0 +1,49 @@
+# ============================================================================
+# BATCH JOB phụ - đọc topic Kafka "actor" -> MongoDB batch_actor + ES batch-actor.
+#
+# ⚠️  LƯU Ý: source hiện KHÔNG có producer nào ghi vào topic "actor"
+# (crawler.get_actors() chưa được nối vào pipeline). Job này sẽ thoát sớm
+# ("No data found in Kafka topic") cho tới khi bạn bổ sung actor producer.
+# Vẫn giữ lại để hoàn chỉnh kiến trúc.
+# ============================================================================
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: actor-batch
+  namespace: bigdata
+  labels:
+    app: actor-batch
+    layer: batch
+spec:
+  schedule: "0 3 * * *"            # mỗi ngày 03:00
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 2
+  suspend: false                   # tạm tắt vì chưa có actor producer; đổi false khi sẵn sàng
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 1200
+      template:
+        metadata:
+          labels:
+            app: actor-batch
+            layer: batch
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: actor-batch
+              image: bigdata-lambda:latest
+              command: ["python", "actor_batch.py"]
+              envFrom:
+                - configMapRef:
+                    name: bigdata-config
+                - secretRef:
+                    name: bigdata-secrets
+              resources:
+                requests:
+                  cpu: "500m"
+                  memory: "1.5Gi"
+                limits:
+                  cpu: "1500m"
+                  memory: "3Gi"

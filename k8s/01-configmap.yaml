@@ -1,0 +1,55 @@
+# ============================================================================
+# Cấu hình KHÔNG nhạy cảm dùng chung cho mọi workload.
+# Tên service khớp với DNS đã hardcode trong code Python (namespace bigdata).
+# ============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bigdata-config
+  namespace: bigdata
+data:
+  # --- Kafka (Strimzi) ---
+  KAFKA_BROKER1: "kafka-cluster-kafka-bootstrap.bigdata.svc.cluster.local:9092"
+  KAFKA_BOOTSTRAP: "kafka-cluster-kafka-bootstrap.bigdata.svc.cluster.local:9092"
+  MOVIE_TOPIC: "movie"
+  ACTOR_TOPIC: "actor"
+
+  # --- Spark chạy local mode trong từng pod ---
+  MASTER: "local[*]"
+  SPARK_DRIVER_MEMORY: "2g"
+  SHUFFLE_PARTITIONS: "50"
+
+  # --- Elasticsearch (không bật security) ---
+  ES_NODES: "elasticsearch.bigdata.svc.cluster.local"
+
+  # --- MinIO (data lake) ---
+  MINIO_ENDPOINT: "http://minio.bigdata.svc.cluster.local:9000"
+  MINIO_BUCKET: "datalake"
+  MINIO_ENABLED: "true"
+  MINIO_CSV_FILE: "tmdb.csv"
+
+  # --- MongoDB serving store ---
+  MONGO_ENABLED: "true"
+  MONGO_HOST: "mongodb.bigdata.svc.cluster.local:27017"
+
+  # --- Ingestion ---
+  BATCH_SIZE: "50"
+  CONTINUOUS_MODE: "true"
+  FETCH_INTERVAL: "30"
+  YEARS_TO_FETCH: "2025,2024,2023,2022,2021,2020,2019,2018,2017,2016,2015"
+
+  # --- Speed layer streaming ---
+  WATERMARK_DELAY: "10 minutes"
+  WINDOW_DURATION: "5 minutes"
+  SLIDE_DURATION: "1 minute"
+  TRIGGER_INTERVAL: "30 seconds"
+  MAX_RECORDS_PER_TRIGGER: "1000"
+  CHECKPOINT_DIR: "/tmp/checkpoint/speed_layer"
+
+  # --- Batch layer ---
+  CSV_PATH: "/data/tmdb.csv"
+
+  # --- Serving layer (Flask) ---
+  SERVING_PORT: "5000"
+  CACHE_TTL_SECONDS: "60"
+  DEBUG_MODE: "false"

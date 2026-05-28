@@ -1,0 +1,41 @@
+# ============================================================================
+# INGESTION LAYER - crawl TMDB -> Kafka (hot) + MinIO/tmdb.csv (cold)
+# Chạy liên tục (CONTINUOUS_MODE=true).
+# ============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ingestion
+  namespace: bigdata
+  labels:
+    app: ingestion
+    layer: ingestion
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ingestion
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: ingestion
+        layer: ingestion
+    spec:
+      containers:
+        - name: ingestion
+          image: bigdata-lambda:latest
+          command: ["python", "data_ingestion_producer.py"]
+          envFrom:
+            - configMapRef:
+                name: bigdata-config
+            - secretRef:
+                name: bigdata-secrets
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1.5Gi"
+            limits:
+              cpu: "1500m"
+              memory: "3Gi"

@@ -1,0 +1,45 @@
+# ============================================================================
+# BATCH JOB phụ - đọc TOÀN BỘ topic Kafka "movie" (batch mode)
+# -> MongoDB BIGDATA.batch_movie + Elasticsearch batch-movie.
+# Chạy mỗi 12 giờ.
+# ============================================================================
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: movie-batch
+  namespace: bigdata
+  labels:
+    app: movie-batch
+    layer: batch
+spec:
+  schedule: "30 */12 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 2400
+      template:
+        metadata:
+          labels:
+            app: movie-batch
+            layer: batch
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: movie-batch
+              image: bigdata-lambda:latest
+              command: ["python", "movie_batch.py"]
+              envFrom:
+                - configMapRef:
+                    name: bigdata-config
+                - secretRef:
+                    name: bigdata-secrets
+              resources:
+                requests:
+                  cpu: "1"
+                  memory: "2Gi"
+                limits:
+                  cpu: "2"
+                  memory: "3.5Gi"
