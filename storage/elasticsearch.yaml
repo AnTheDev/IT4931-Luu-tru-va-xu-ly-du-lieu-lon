@@ -37,6 +37,8 @@ spec:
       labels:
         app: elasticsearch
     spec:
+      securityContext:
+        fsGroup: 1000
       # ES yêu cầu vm.max_map_count >= 262144 trên node host
       initContainers:
         - name: sysctl
