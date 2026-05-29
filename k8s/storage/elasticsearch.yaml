@@ -39,6 +39,7 @@ spec:
     spec:
       securityContext:
         fsGroup: 1000
+        fsGroupChangePolicy: "OnRootMismatch"
       # ES yêu cầu vm.max_map_count >= 262144 trên node host
       initContainers:
         - name: sysctl
