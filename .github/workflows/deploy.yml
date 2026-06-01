@@ -1,0 +1,79 @@
+name: CI/CD Deploy to DigitalOcean Kubernetes
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build-and-deploy:
+    name: Build, Push, and Deploy
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install envsubst
+        run: sudo apt-get update && sudo apt-get install -y gettext-base
+
+      - name: Set up Kustomize
+        uses: imranismail/setup-kustomize@v2
+        with:
+          kustomize-version: "v5.4.1"
+
+      - name: Install doctl
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Log in to DigitalOcean Container Registry (DOCR)
+        run: doctl registry login --expiry-seconds 1200
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and Push Docker Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            registry.digitalocean.com/${{ secrets.DO_REGISTRY_NAME }}/bigdata-lambda:${{ github.sha }}
+            registry.digitalocean.com/${{ secrets.DO_REGISTRY_NAME }}/bigdata-lambda:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Save DOKS Kubeconfig
+        run: doctl kubernetes cluster kubeconfig save ${{ secrets.DO_CLUSTER_NAME }}
+
+      - name: Generate Kubernetes Secrets Manifest
+        env:
+          TMDB_BEARER_TOKEN: ${{ secrets.TMDB_BEARER_TOKEN }}
+          MONGO_ROOT_PASSWORD: ${{ secrets.MONGO_ROOT_PASSWORD }}
+          MINIO_ROOT_PASSWORD: ${{ secrets.MINIO_ROOT_PASSWORD }}
+        run: |
+          envsubst < k8s/02-secret.yaml.template > k8s/02-secret.yaml
+
+      - name: Update Image Tag in Kustomize
+        run: |
+          cd k8s
+          kustomize edit set image bigdata-lambda=registry.digitalocean.com/${{ secrets.DO_REGISTRY_NAME }}/bigdata-lambda:${{ github.sha }}
+
+      - name: Deploy workloads to Kubernetes
+        run: |
+          # Apply namespace, configmap, secrets, storage, and app workloads
+          kubectl apply -k k8s/
+          
+          # Apply Kafka cluster and topic configurations
+          kubectl apply -f k8s/kafka/
+
+      - name: Verify Rollout Status
+        run: |
+          echo "Checking rollout status of core components..."
+          kubectl rollout status deployment/ingestion -n bigdata --timeout=180s
+          kubectl rollout status deployment/speed-layer -n bigdata --timeout=180s
+          kubectl rollout status deployment/serving-layer -n bigdata --timeout=180s
