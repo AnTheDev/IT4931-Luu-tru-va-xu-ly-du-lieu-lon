@@ -25,6 +25,7 @@ resources:
   - apps/movie-batch-cronjob.yaml
   - apps/actor-batch-cronjob.yaml
   - apps/metabase.yaml
+  - 03-ingress.yaml
 
 # 👇 ĐỔI newName thành registry DOCR của bạn trước khi apply
 images:
