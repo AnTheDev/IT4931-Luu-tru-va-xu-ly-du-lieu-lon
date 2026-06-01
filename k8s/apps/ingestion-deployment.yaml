@@ -23,17 +23,19 @@ spec:
         app: ingestion
         layer: ingestion
     spec:
-containers:
-  - name: ingestion
-    image: bigdata-lambda:latest
-    command: ["python", "data_ingestion_producer.py"]
-    envFrom:
-      - secretRef:
-          name: bigdata-secrets
-    resources:
-      requests:
-        cpu: "500m"
-        memory: "1.5Gi"
-      limits:
-        cpu: "1500m"
-        memory: "3Gi"
+      containers:
+        - name: ingestion
+          image: bigdata-lambda:latest
+          command: ["python", "data_ingestion_producer.py"]
+          envFrom:
+            - configMapRef:
+                name: bigdata-config
+            - secretRef:
+                name: bigdata-secrets
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1.5Gi"
+            limits:
+              cpu: "1500m"
+              memory: "3Gi"
