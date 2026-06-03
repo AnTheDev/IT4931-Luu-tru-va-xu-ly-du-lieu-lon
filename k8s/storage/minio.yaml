@@ -11,6 +11,7 @@ metadata:
   labels:
     app: minio
 spec:
+  type: ClusterIP
   selector:
     app: minio
   ports:

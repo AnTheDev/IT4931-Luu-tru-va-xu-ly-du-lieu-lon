@@ -74,10 +74,8 @@ metadata:
   namespace: bigdata
   labels:
     app: metabase
-  annotations:
-    service.beta.kubernetes.io/do-loadbalancer-name: "bigdata-metabase"
 spec:
-  type: LoadBalancer
+  type: ClusterIP
   selector:
     app: metabase
   ports:
