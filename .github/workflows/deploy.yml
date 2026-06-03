@@ -74,6 +74,6 @@ jobs:
       - name: Verify Rollout Status
         run: |
           echo "Checking rollout status of core components..."
-          kubectl rollout status deployment/ingestion -n bigdata --timeout=180s
-          kubectl rollout status deployment/speed-layer -n bigdata --timeout=180s
-          kubectl rollout status deployment/serving-layer -n bigdata --timeout=180s
+          kubectl rollout status deployment/ingestion -n bigdata --timeout=600s
+          kubectl rollout status deployment/speed-layer -n bigdata --timeout=600s
+          kubectl rollout status deployment/serving-layer -n bigdata --timeout=600s
