@@ -6,24 +6,87 @@ metadata:
   annotations:
     nginx.ingress.kubernetes.io/proxy-body-size: "1024m"
     nginx.ingress.kubernetes.io/client-max-body-size: "1024m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "600"
 spec:
   ingressClassName: nginx
   rules:
     - host: it4931.xyz
       http:
         paths:
-          - path: /api
+          # --- Serving Layer Specific Routes ---
+          - path: /api/health
             pathType: Prefix
             backend:
               service:
                 name: serving-layer
                 port:
                   number: 80
+          - path: /api/movies
+            pathType: Prefix
+            backend:
+              service:
+                name: serving-layer
+                port:
+                  number: 80
+          - path: /api/stats
+            pathType: Prefix
+            backend:
+              service:
+                name: serving-layer
+                port:
+                  number: 80
+          - path: /api/top
+            pathType: Prefix
+            backend:
+              service:
+                name: serving-layer
+                port:
+                  number: 80
+          - path: /api/analytics
+            pathType: Prefix
+            backend:
+              service:
+                name: serving-layer
+                port:
+                  number: 80
+          - path: /api/lambda
+            pathType: Prefix
+            backend:
+              service:
+                name: serving-layer
+                port:
+                  number: 80
+          - path: /api/raw
+            pathType: Prefix
+            backend:
+              service:
+                name: serving-layer
+                port:
+                  number: 80
+          - path: /api/metrics
+            pathType: Prefix
+            backend:
+              service:
+                name: serving-layer
+                port:
+                  number: 80
+          # --- Fallback to Metabase ---
           - path: /
             pathType: Prefix
             backend:
               service:
                 name: metabase
+                port:
+                  number: 80
+    - host: api.it4931.xyz
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: serving-layer
                 port:
                   number: 80
     - host: io.it4931.xyz
