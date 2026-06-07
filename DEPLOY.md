@@ -113,6 +113,9 @@ doctl kubernetes cluster registry add bigdata-cluster
 
 ## 6. Build & push image lên DOCR
 
+> 💡 **Khuyến nghị:** Dự án hiện tại đã tích hợp CI/CD tự động bằng GitHub Actions. Bạn có thể push code lên branch `main` hoặc kích hoạt thủ công qua tab Actions để hệ thống tự động build & push image lên DOCR và deploy lên DOKS.
+> Nếu muốn build local thủ công để test nhanh:
+
 ```bash
 # Từ thư mục gốc dự án
 chmod +x scripts/build-and-push.sh
@@ -143,18 +146,32 @@ kubectl -n bigdata rollout status deploy/strimzi-cluster-operator
 
 ## 8. Cập nhật cấu hình trước khi apply
 
-1. **Image** — sửa `k8s/kustomization.yaml`:
-   ```yaml
-   images:
-     - name: bigdata-lambda
-       newName: registry.digitalocean.com/my-bigdata-registry/bigdata-lambda
-       newTag: latest
-   ```
+### 8.1. Cấu hình local `.env` (Chạy code Python trực tiếp)
+Để chạy trực tiếp các script Python từ máy local của bạn mà không thông qua Kubernetes, copy file mẫu và điền thông tin:
+```bash
+cp .env.example .env
+# Mở file .env và cập nhật thông tin của bạn
+```
+*Lưu ý: File `.env` chứa mật khẩu đã được khai báo trong `.gitignore` để tránh rò rỉ mã nguồn.*
 
-2. **Secrets** — sửa `k8s/02-secret.yaml`, thay tất cả `REPLACE_*` / `ChangeMe-*`:
-   - `TMDB_BEARER_TOKEN`: token v4 từ https://www.themoviedb.org/settings/api
-   - Mật khẩu Mongo phải **trùng nhau** ở `CONNECTION_STRING`, `mongodb-secret`.
-   - Mật khẩu MinIO phải **trùng** ở `bigdata-secrets` và `minio-secret`.
+### 8.2. Cập nhật Image trong `k8s/kustomization.yaml`
+Sửa file `k8s/kustomization.yaml`:
+```yaml
+images:
+  - name: bigdata-lambda
+    newName: registry.digitalocean.com/my-bigdata-registry/bigdata-lambda
+    newTag: latest
+```
+
+### 8.3. Cập nhật Secrets cho Kubernetes
+Để đảm bảo an toàn bảo mật, file cấu hình secret `k8s/02-secret.yaml` chứa các plaintext key đã được đưa vào `.gitignore`.
+- **Cách 1: Triển khai thủ công ở local:**
+  Copy file template `k8s/02-secret.yaml.template` thành `k8s/02-secret.yaml` và chỉnh sửa các giá trị thực tế của bạn (như token TMDB, mật khẩu MongoDB, MinIO):
+  ```bash
+  cp k8s/02-secret.yaml.template k8s/02-secret.yaml
+  ```
+- **Cách 2: Triển khai tự động qua CI/CD:**
+  Hệ thống CI/CD GitHub Actions sẽ tự động dùng lệnh `envsubst` để sinh file `02-secret.yaml` từ `02-secret.yaml.template` bằng các GitHub Secrets bạn đã cấu hình (xem mục 15).
 
 ---
 
@@ -243,6 +260,27 @@ doctl registry delete my-bigdata-registry
 | DOKS 3× s-4vcpu-8gb | ~$48/node/tháng | ~$144/tháng |
 | 2× Load Balancer | ~$12/cái/tháng | ~$24/tháng |
 | Block storage (~70Gi) | ~$0.10/Gi/tháng | ~$7/tháng |
-| DOCR basic | ~$5/tháng | |
+| DOCR basic | ~$5/tháng | Tổng ~**$180/tháng** nếu chạy 24/7. Để tiết kiệm cho đồ án: scale node pool xuống/destroy cụm khi không dùng, hoặc đổi 2 Load Balancer → 1 Ingress-nginx.
 
-Tổng ~**$180/tháng** nếu chạy 24/7. Để tiết kiệm cho đồ án: scale node pool xuống/destroy cụm khi không dùng, hoặc đổi 2 Load Balancer → 1 ingress-nginx.
+---
+
+## 15. Tự động hóa CI/CD bằng GitHub Actions
+
+Quy trình deploy đã được tự động hóa hoàn toàn bằng GitHub Actions (file cấu hình `.github/workflows/deploy.yml`). Khi bạn push code lên branch `main` hoặc chạy thủ công workflow, hệ thống sẽ thực hiện:
+1. Đăng nhập DigitalOcean Container Registry (DOCR).
+2. Build Docker image (`linux/amd64`) và push lên DOCR với 2 tag: `latest` và Git Commit SHA.
+3. Sinh file `02-secret.yaml` từ template sử dụng các GitHub Secrets.
+4. Cập nhật image tag trong Kustomize sang Commit SHA mới nhất để đảm bảo deploy mượt mà.
+5. Apply toàn bộ manifests lên cụm Kubernetes và kiểm tra trạng thái của các Service chính.
+
+### Cài đặt GitHub Secrets
+Trước khi kích hoạt, bạn cần vào Repository của bạn trên GitHub (`Settings` -> `Secrets and variables` -> `Actions` -> `New repository secret`) và cấu hình các secret sau:
+
+| Tên Secret | Ý nghĩa | Ví dụ / Giá trị mẫu |
+|---|---|---|
+| `DIGITALOCEAN_ACCESS_TOKEN` | Token DigitalOcean cá nhân (Read/Write) | `dop_v1_abcd...` |
+| `DO_REGISTRY_NAME` | Tên của DigitalOcean Container Registry | `my-bigdata-registry` |
+| `DO_CLUSTER_NAME` | Tên của cụm DigitalOcean Kubernetes cluster | `bigdata-cluster` |
+| `TMDB_BEARER_TOKEN` | Bearer Token v4 từ tài khoản TMDB | `eyJhbGciOi...` |
+| `MONGO_ROOT_PASSWORD` | Mật khẩu quản trị cho MongoDB | `MyStrongMongoPass123` |
+| `MINIO_ROOT_PASSWORD` | Mật khẩu quản trị cho MinIO | `MyStrongMinioPass123` |
