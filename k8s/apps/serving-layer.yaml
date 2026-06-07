@@ -1,0 +1,71 @@
+# ============================================================================
+# SERVING LAYER - Flask REST API hợp nhất batch_* + speed_* từ MongoDB.
+# Expose ra internet qua DigitalOcean Load Balancer.
+# ============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: serving-layer
+  namespace: bigdata
+  labels:
+    app: serving-layer
+    layer: serving
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: serving-layer
+  template:
+    metadata:
+      labels:
+        app: serving-layer
+        layer: serving
+    spec:
+      containers:
+        - name: serving-layer
+          image: bigdata-lambda:latest
+          command: ["python", "enhanced_serving_layer.py"]
+          ports:
+            - containerPort: 5000
+          envFrom:
+            - configMapRef:
+                name: bigdata-config
+            - secretRef:
+                name: bigdata-secrets
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 5000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 5000
+            initialDelaySeconds: 20
+            periodSeconds: 20
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: serving-layer
+  namespace: bigdata
+  labels:
+    app: serving-layer
+  annotations:
+    service.beta.kubernetes.io/do-loadbalancer-name: "bigdata-serving-api"
+spec:
+  type: LoadBalancer
+  selector:
+    app: serving-layer
+  ports:
+    - name: http
+      port: 80
+      targetPort: 5000
