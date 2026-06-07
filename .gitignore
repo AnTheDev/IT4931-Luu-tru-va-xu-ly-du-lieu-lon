@@ -1,26 +1,45 @@
-# Byte-compiled / optimized / DLL files
+# Python build and caches
 __pycache__/
-*.py[cod]
-*$py.class
-
-# Environments
-.env
-.venv
+*.pyc
+*.pyo
+*.pyd
+.Python
 env/
 venv/
-ENV/
-env.bak/
-venv.bak/
+.venv/
+pip-log.txt
+pip-delete-this-directory.txt
+.toast
+.build
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
 
-# OS metadata
+# Spark & local data paths
+checkpoint/
+/data/
+*.csv
+/tmp/
+
+# OS-specific files
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
 Thumbs.db
 
-# IDEs and editors
-.vscode/
+# IDE configurations
 .idea/
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
+.vscode/
+*.swp
+*.swo
+
+# Credentials and secrets (CRITICAL: Do not commit)
+.env
+.env.*
+!.env.example
+k8s/02-secret.yaml
