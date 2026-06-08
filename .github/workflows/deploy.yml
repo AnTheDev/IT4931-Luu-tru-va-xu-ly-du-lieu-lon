@@ -56,6 +56,7 @@ jobs:
           MONGO_ROOT_PASSWORD: ${{ secrets.MONGO_ROOT_PASSWORD }}
           MINIO_ROOT_PASSWORD: ${{ secrets.MINIO_ROOT_PASSWORD }}
         run: |
+          export MONGO_ENCODED_ROOT_PASSWORD=$(python3 -c "import urllib.parse, sys; print(urllib.parse.quote(sys.stdin.read().strip()))" <<< "$MONGO_ROOT_PASSWORD")
           envsubst < k8s/02-secret.yaml.template > k8s/02-secret.yaml
 
       - name: Update Image Tag in Kustomize
