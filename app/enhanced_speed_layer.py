@@ -63,7 +63,7 @@ packages = [
 if MONGO_ENABLED:
     packages.append('org.mongodb.spark:mongo-spark-connector_2.12:10.6.1')
 if ES_ENABLED:
-    packages.append('org.elasticsearch:elasticsearch-spark-30_2.12:8.19.16')
+    packages.append('org.elasticsearch:elasticsearch-spark-30_2.12:8.15.0')
 
 print("=" * 80)
 print("⚡ ENHANCED SPEED LAYER - LAMBDA ARCHITECTURE")

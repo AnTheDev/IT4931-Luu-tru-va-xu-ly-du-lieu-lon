@@ -65,7 +65,7 @@ if MINIO_ENABLED:
     packages.append('org.apache.hadoop:hadoop-aws:3.3.6')
     packages.append('com.amazonaws:aws-java-sdk-bundle:1.12.797')
 if ES_ENABLED:
-    packages.append('org.elasticsearch:elasticsearch-spark-30_2.12:8.19.16')
+    packages.append('org.elasticsearch:elasticsearch-spark-30_2.12:8.15.0')
 
 print("=" * 80)
 print("🚀 ENHANCED BATCH LAYER - LAMBDA ARCHITECTURE")
