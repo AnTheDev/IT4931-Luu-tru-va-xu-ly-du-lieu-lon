@@ -39,7 +39,7 @@ app = Flask(__name__)
 CORS(app)
 
 # Kết nối MongoDB
-mongo_client = MongoClient(MONGO_URI)
+mongo_client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=2000)
 mongodb_database = mongo_client['BIGDATA']
 
 # Kết nối Elasticsearch (graceful fallback nếu ES không khả dụng)

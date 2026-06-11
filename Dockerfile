@@ -30,11 +30,11 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 RUN python - <<'PY'
 from pyspark.sql import SparkSession
 packages = [
-    "org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.1",
-    "org.mongodb.spark:mongo-spark-connector_2.12:10.4.0",
-    "org.elasticsearch:elasticsearch-spark-30_2.12:8.15.0",
-    "org.apache.hadoop:hadoop-aws:3.3.4",
-    "com.amazonaws:aws-java-sdk-bundle:1.12.500",
+    "org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.8",
+    "org.mongodb.spark:mongo-spark-connector_2.12:10.6.1",
+    "org.elasticsearch:elasticsearch-spark-30_2.12:8.19.16",
+    "org.apache.hadoop:hadoop-aws:3.3.6",
+    "com.amazonaws:aws-java-sdk-bundle:1.12.797",
 ]
 spark = (SparkSession.builder
          .master("local[1]")

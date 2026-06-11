@@ -60,12 +60,12 @@ BROADCAST_THRESHOLD = int(os.environ.get("BROADCAST_THRESHOLD", "10485760"))  # 
 # Spark packages
 packages = []
 if MONGO_ENABLED:
-    packages.append('org.mongodb.spark:mongo-spark-connector_2.12:10.4.0')
+    packages.append('org.mongodb.spark:mongo-spark-connector_2.12:10.6.1')
 if MINIO_ENABLED:
-    packages.append('org.apache.hadoop:hadoop-aws:3.3.4')
-    packages.append('com.amazonaws:aws-java-sdk-bundle:1.12.500')
+    packages.append('org.apache.hadoop:hadoop-aws:3.3.6')
+    packages.append('com.amazonaws:aws-java-sdk-bundle:1.12.797')
 if ES_ENABLED:
-    packages.append('org.elasticsearch:elasticsearch-spark-30_2.12:8.15.0')
+    packages.append('org.elasticsearch:elasticsearch-spark-30_2.12:8.19.16')
 
 print("=" * 80)
 print("🚀 ENHANCED BATCH LAYER - LAMBDA ARCHITECTURE")

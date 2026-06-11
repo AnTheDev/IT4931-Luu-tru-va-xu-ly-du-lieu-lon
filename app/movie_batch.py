@@ -16,9 +16,9 @@ CONNECTION_STRING = os.environ.get("CONNECTION_STRING", "mongodb://localhost:270
 MASTER = os.environ.get("MASTER", "local[*]")
 
 packages = [
-    'org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.1',
-    'org.mongodb.spark:mongo-spark-connector_2.12:10.4.0',
-    'org.elasticsearch:elasticsearch-spark-30_2.12:8.15.0'
+    'org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.8',
+    'org.mongodb.spark:mongo-spark-connector_2.12:10.6.1',
+    'org.elasticsearch:elasticsearch-spark-30_2.12:8.19.16'
 ]
 
 print("=== STARTING MOVIE BATCH JOB ===")

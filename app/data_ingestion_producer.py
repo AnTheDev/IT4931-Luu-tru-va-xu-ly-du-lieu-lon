@@ -43,9 +43,9 @@ FETCH_INTERVAL = int(os.environ.get("FETCH_INTERVAL", "30"))  # seconds between 
 
 # Spark packages
 packages = [
-    'org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.1',
-    'org.apache.hadoop:hadoop-aws:3.3.4',
-    'com.amazonaws:aws-java-sdk-bundle:1.12.500'
+    'org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.8',
+    'org.apache.hadoop:hadoop-aws:3.3.6',
+    'com.amazonaws:aws-java-sdk-bundle:1.12.797'
 ]
 
 print("=" * 70)

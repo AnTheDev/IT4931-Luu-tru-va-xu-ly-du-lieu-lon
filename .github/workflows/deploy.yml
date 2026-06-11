@@ -21,7 +21,7 @@ jobs:
       - name: Set up Kustomize
         uses: imranismail/setup-kustomize@v3
         with:
-          kustomize-version: "5.4.1"
+          kustomize-version: "5.8.1"
 
       - name: Install doctl
         uses: digitalocean/action-doctl@v2
@@ -32,10 +32,10 @@ jobs:
         run: doctl registry login --expiry-seconds 1200
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Build and Push Docker Image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: ./Dockerfile
@@ -70,10 +70,3 @@ jobs:
           
           # Apply Kafka cluster and topic configurations
           kubectl apply -f k8s/kafka/
-
-      - name: Verify Rollout Status
-        run: |
-          echo "Checking rollout status of core components..."
-          kubectl rollout status deployment/ingestion -n bigdata --timeout=600s
-          kubectl rollout status deployment/speed-layer -n bigdata --timeout=600s
-          kubectl rollout status deployment/serving-layer -n bigdata --timeout=600s

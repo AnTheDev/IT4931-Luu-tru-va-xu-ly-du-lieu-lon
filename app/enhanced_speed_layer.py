@@ -58,12 +58,12 @@ MAX_RECORDS_PER_TRIGGER = os.environ.get("MAX_RECORDS_PER_TRIGGER", "1000")
 
 # Spark packages
 packages = [
-    'org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.1',
+    'org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.8',
 ]
 if MONGO_ENABLED:
-    packages.append('org.mongodb.spark:mongo-spark-connector_2.12:10.4.0')
+    packages.append('org.mongodb.spark:mongo-spark-connector_2.12:10.6.1')
 if ES_ENABLED:
-    packages.append('org.elasticsearch:elasticsearch-spark-30_2.12:8.15.0')
+    packages.append('org.elasticsearch:elasticsearch-spark-30_2.12:8.19.16')
 
 print("=" * 80)
 print("⚡ ENHANCED SPEED LAYER - LAMBDA ARCHITECTURE")
