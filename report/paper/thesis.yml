@@ -1,0 +1,42 @@
+trung2025slide:
+  type: misc
+  title: "Slide môn học Lưu trữ và xử lý dữ liệu lớn"
+  author:
+    - TS. Trần Việt Trung
+  date: 2025
+  publisher: "Trường Công nghệ Thông tin và Truyền thông - Đại học Bách Khoa Hà Nội"
+
+kafka_doc:
+  type: misc
+  title: "Apache Kafka Documentation"
+  url: "https://kafka.apache.org/documentation/"
+
+spark_doc:
+  type: misc
+  title: "Apache Spark Python API (PySpark) Documentation"
+  url: "https://spark.apache.org/docs/latest/api/python/"
+
+mongo_doc:
+  type: misc
+  title: "MongoDB Documentation"
+  url: "https://www.mongodb.com/"
+
+metabase_doc:
+  type: misc
+  title: "Metabase Documentation"
+  url: "https://www.metabase.com/docs/latest/"
+
+docker_doc:
+  type: misc
+  title: "Docker Documentation"
+  url: "https://docs.docker.com/"
+
+minio_doc:
+  type: misc
+  title: "MinIO Object Storage Documentation"
+  url: "https://docs.min.io/"
+
+k8s_doc:
+  type: misc
+  title: "Kubernetes Documentation"
+  url: "https://kubernetes.io/docs/"
