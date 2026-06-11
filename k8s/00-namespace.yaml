@@ -1,6 +1,0 @@
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: bigdata
-  labels:
-    app.kubernetes.io/part-of: lambda-architecture
